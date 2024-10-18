@@ -114,8 +114,7 @@ Backup-GPO –All –Path C:\Temp\AllGPO
 Get-Adforest ad.wipro.com | Forest-table Schemamaster, domainnamingmaster
 ```
 
-## 16. **List Current FSMO Role Holders** 
-
+16. **List Current FSMO Role Holders** 
    a) Get domain level FSMO roles
 
    ```powershell
@@ -128,7 +127,7 @@ Get-Adforest ad.wipro.com | Forest-table Schemamaster, domainnamingmaster
    Get-ADForest | select DomainNamingMaster, SchemaMaster
    ```
 
-## 17. **Transfer FSMO Roles**
+## **Transfer FSMO Roles**
 
    1. **Transfer PDCEmulator**
 
@@ -160,7 +159,7 @@ Get-Adforest ad.wipro.com | Forest-table Schemamaster, domainnamingmaster
    Move-ADDirectoryServerOperationMasterRole -Identity "dc1" SchemaMaster
    ```
 
-## 18. **Join a PC to Domain**
+18. **Join a PC to Domain**
 
 ```powershell
 Add-computer -DomainName contoso.com -Credential contoso.com\Admin -Verbose -Restart -Force
