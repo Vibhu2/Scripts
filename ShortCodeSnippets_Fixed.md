@@ -117,12 +117,11 @@ Get-Adforest ad.wipro.com | Forest-table Schemamaster, domainnamingmaster
 16. **List Current FSMO Role Holders** 
 a) Get domain level FSMO roles
 ```powershell
-   get-addomain | select InfrastructureMaster, PDCEmulator, RIDMaster
+get-addomain | select InfrastructureMaster, PDCEmulator, RIDMaster
 ```
-
 b) Get forest level FSMO roles
 ```powershell
-   Get-ADForest | select DomainNamingMaster, SchemaMaster
+Get-ADForest | select DomainNamingMaster, SchemaMaster
 ```
 
 ## **Transfer FSMO Roles**
