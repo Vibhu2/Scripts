@@ -181,3 +181,12 @@ Get-ADOptionalFeature -Filter {name -like 'Recycle Bin Feature'} | Select-Object
 ```powershell
     repadmin /syncall /AeP
 ```
+24. AD Health Check
+```powershell
+Import-Module ActiveDirectory
+Get-ADDomain | Select-Object DomainMode
+Get-ADForest | Select-Object ForestMode
+Get-ADOptionalFeature -Filter {name -like 'Recycle Bin Feature'} | Select-Object Name, EnabledScopes
+repadmin /replsummary
+netdom query fsmo
+```
