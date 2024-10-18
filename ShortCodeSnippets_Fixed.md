@@ -160,7 +160,27 @@ Get-Adforest ad.wipro.com | Forest-table Schemamaster, domainnamingmaster
    ```
 
 18. **Join a PC to Domain**
-
 ```powershell
 Add-computer -DomainName contoso.com -Credential contoso.com\Admin -Verbose -Restart -Force
+```
+19.Checking for AD recycle bin
+```powershell
+Get-ADOptionalFeature -Filter {name -like 'Recycle Bin Feature'} | Select-Object Name, EnabledScopes
+```
+20. Enabling AD recycle bin
+```powershell
+    Enable-ADOptionalFeature -Identity 'Recycle Bin Feature' -Scope ForestOrConfigurationSet -Target (Get-ADForest).RootDomain -Confirm:$false
+```
+21. Checking for Domain and forest functional Leavel.
+```powershell
+   Get-ADDomain | Select-Object DomainMode
+   Get-ADForest | Select-Object ForestMode
+```
+22. checking for AD replication status
+```powershell
+    repadmin /replsummary
+```
+23. Running force AD replication
+```powershell
+    repadmin /syncall /AeP
 ```
