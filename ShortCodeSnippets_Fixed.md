@@ -115,45 +115,43 @@ Get-Adforest ad.wipro.com | Forest-table Schemamaster, domainnamingmaster
 ```
 
 16. **List Current FSMO Role Holders** 
-   a) Get domain level FSMO roles
-
-   ```powershell
+a) Get domain level FSMO roles
+```powershell
    get-addomain | select InfrastructureMaster, PDCEmulator, RIDMaster
-   ```
+```
 
-   b) Get forest level FSMO roles
-
-   ```powershell
+b) Get forest level FSMO roles
+```powershell
    Get-ADForest | select DomainNamingMaster, SchemaMaster
-   ```
+```
 
 ## **Transfer FSMO Roles**
 
-   1. **Transfer PDCEmulator**
+   1. Transfer PDCEmulator
 
    ```powershell
    Move-ADDirectoryServerOperationMasterRole -Identity "dc1" PDCEmulator
    ```
 
-   2. **Transfer RIDMaster**
+   2. Transfer RIDMaster
 
    ```powershell
    Move-ADDirectoryServerOperationMasterRole -Identity "dc1" RIDMaster
    ```
 
-   3. **Transfer InfrastructureMaster**
+   3. Transfer InfrastructureMaster
 
    ```powershell
    Move-ADDirectoryServerOperationMasterRole -Identity "dc1" Infrastructuremaster
    ```
 
-   4. **Transfer DomainNamingMaster**
+   4. Transfer DomainNamingMaster
 
    ```powershell
    Move-ADDirectoryServerOperationMasterRole -Identity "dc1" DomainNamingmaster
    ```
 
-   5. **Transfer SchemaMaster**
+   5. Transfer SchemaMaster
 
    ```powershell
    Move-ADDirectoryServerOperationMasterRole -Identity "dc1" SchemaMaster
