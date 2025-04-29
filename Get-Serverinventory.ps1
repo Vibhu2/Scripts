@@ -526,7 +526,7 @@ function Get-ServerInventory
                 TombstoneLifetime     = $tombstoneLifetime
                 DomainFunctLev        = $domainFunctionalLevel
                 ForestFunLev          = $forestFunctionalLevel
-                TotalUsers            = $totalUsers
+                TotalADUsers            = $totalUsers
                 ADRecyclebin          = $RecyclebinStatus
                 AzureADJoinStatus     = $AzureADJoinStatus
                 
