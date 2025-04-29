@@ -34,9 +34,12 @@ function Get-ServerInventory
                 }
             }
             $systemInfo = [PSCustomObject]@{
+                 # Basic Computer Identification
                 'Computer Name'              = $ComputerName
                 'DNS Hostname'               = $computerInfo.CsDNSHostname
                 'Primary IP'                 = $ipAddress
+                
+                # Operating System Detail
                 'OS Name'                    = $computerInfo.OSName
                 'OS Version'                 = $computerInfo.OSVersion
                 'OS Build'                   = $computerInfo.OSBuildNumber
@@ -44,13 +47,19 @@ function Get-ServerInventory
                 'OS Install Date'            = $computerInfo.OsInstallDate
                 'Windows Version'            = $computerInfo.WindowsVersion
                 'Hardware Abstraction Layer' = $computerInfo.OsHardwareAbstractionLayer
+                
+                # BIOS and Manufacturer Details
                 'BIOS Version'               = $computerInfo.BiosSMBIOSBIOSVersion
                 'BIOS Manufacturer'          = $computerInfo.BiosManufacturer
                 'System Manufacturer'        = $computerInfo.CsManufacturer
                 'System Model'               = $computerInfo.CsModel
                 'BISO Type'                  = $computerInfo.BiosfirmwareType
+
+                # Domain and Network Details
                 'Domain'                     = $computerInfo.CsDomain
                 'Domain Role'                = $computerInfo.CsDomainRole
+
+                # Processor and Memory Details
                 'Processor'                  = $computerInfo.CsProcessors.Name
                 'Cores'                      = $computerInfo.CsProcessors.NumberOfCores
                 'Logical Processors'         = $computerInfo.CsProcessors.NumberOfLogicalProcessors
