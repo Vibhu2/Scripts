@@ -491,6 +491,27 @@ function Get-ServerInventory
             catch {
                 Write-Warning " Cant detect Recyclebinn status "
             }
+            try {
+                function Get-AzureADJoinStatus {
+                    try {
+                        $dsregOutput = dsregcmd /status 2>&1
+                
+                        if ($dsregOutput -match "AzureAdJoined\s*:\s*YES") {
+                            Write-Output "Server is Azure AD Joined.`n"
+                            return $dsregOutput
+                        }
+                        else {
+                            return "Server is NOT Azure AD Joined."
+                        }
+                    }
+                    catch {
+                        return "Server is NOT Azure AD Joined (dsregcmd failed)."
+                    }
+                }
+                $AzureADJoinStatus = Get-AzureADJoinStatus          }
+            catch {
+                Write-Error "Error checking Azure AD Join status: $_"
+            }
                 
             return @{
                 DomainControllers     = $domainControllers
@@ -507,7 +528,8 @@ function Get-ServerInventory
                 ForestFunLev          = $forestFunctionalLevel
                 TotalUsers            = $totalUsers
                 ADRecyclebin          = $RecyclebinStatus
-                    
+                AzureADJoinStatus     = $AzureADJoinStatus
+                
             }
         }
         catch
