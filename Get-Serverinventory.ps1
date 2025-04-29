@@ -484,32 +484,42 @@ function Get-ServerInventory
                 Write-Warning "cant detect functional leavels"
             }
             # Check if Ad recyclebin is enabled
-            try {
-                $RecyclebinStatus = if ((Get-ADOptionalFeature -Filter 'Name -eq "Recycle Bin Feature"').EnabledScopes) {" ENABLED"} else {"Recycle Bin is NOT enabled"}
+            try
+            {
+                $RecyclebinStatus = if ((Get-ADOptionalFeature -Filter 'Name -eq "Recycle Bin Feature"').EnabledScopes) { " ENABLED" } else { "Recycle Bin is NOT enabled" }
     
             }
-            catch {
+            catch
+            {
                 Write-Warning " Cant detect Recyclebinn status "
             }
-            try {
-                function Get-AzureADJoinStatus {
-                    try {
+            try
+            {
+                function Get-AzureADJoinStatus
+                {
+                    try
+                    {
                         $dsregOutput = dsregcmd /status 2>&1
                 
-                        if ($dsregOutput -match "AzureAdJoined\s*:\s*YES") {
+                        if ($dsregOutput -match "AzureAdJoined\s*:\s*YES")
+                        {
                             Write-Output "Server is Azure AD Joined.`n"
                             return $dsregOutput
                         }
-                        else {
+                        else
+                        {
                             return "Server is NOT Azure AD Joined."
                         }
                     }
-                    catch {
+                    catch
+                    {
                         return "Server is NOT Azure AD Joined (dsregcmd failed)."
                     }
                 }
-                $AzureADJoinStatus = Get-AzureADJoinStatus          }
-            catch {
+                $AzureADJoinStatus = Get-AzureADJoinStatus          
+            }
+            catch
+            {
                 Write-Error "Error checking Azure AD Join status: $_"
             }
                 
@@ -526,7 +536,7 @@ function Get-ServerInventory
                 TombstoneLifetime     = $tombstoneLifetime
                 DomainFunctLev        = $domainFunctionalLevel
                 ForestFunLev          = $forestFunctionalLevel
-                TotalADUsers            = $totalUsers
+                TotalADUsers          = $totalUsers
                 ADRecyclebin          = $RecyclebinStatus
                 AzureADJoinStatus     = $AzureADJoinStatus
                 
@@ -718,7 +728,13 @@ function Get-ServerInventory
                 $adInfo.DomainControllers | Format-Table -AutoSize
                 Write-Host "FSMO ROLES:" -ForegroundColor Yellow
                 $adInfo.FSMORoles | Format-List
+                Write-Host "Domain Functional Level: $($adInfo.DomainFunctionalLevel)" -ForegroundColor Cyan
+                Write-Host "Forest Functional Level: $($adInfo.ForestFunctionalLevel)" -ForegroundColor Cyan
+                Write-Host "Tombstone Lifetime: $($adInfo.TombstoneLifetime) days" -ForegroundColor Cyan
                 Write-Host "SERVERS IN DOMAIN:" -ForegroundColor Yellow
+                Write-host "Total AD Users: $($adInfo.TotalADUsers)" -ForegroundColor Cyan
+                Write-host "AD Recyclebin: $($adInfo.ADRecyclebin)" -ForegroundColor Cyan
+                Write-host "Azure AD Join Status: $($adInfo.AzureADJoinStatus)" -ForegroundColor Cyan
                 $adInfo.AllServers | Format-Table -AutoSize
                 Write-Host "USER FOLDERS INFORMATION:" -ForegroundColor Yellow
                 $adInfo.UserFolderReport | Format-Table -AutoSize
@@ -726,17 +742,7 @@ function Get-ServerInventory
                 $adInfo.SysvolScripts | Format-Table -AutoSize
                 Write-Host "PRIVILEGED USERS:" -ForegroundColor Yellow
                 $adInfo.PrivilegedUsers | Format-Table -AutoSize
-                Write-Host "Domain Functional Level: $($adInfo.DomainFunctionalLevel)" -ForegroundColor Cyan
-                Write-Host "Forest Functional Level: $($adInfo.ForestFunctionalLevel)" -ForegroundColor Cyan
-                if ($adInfo.RecycleBinEnabled)
-                {
-                    Write-Host "Recycle Bin is ENABLED" -ForegroundColor Green
-                }
-                else
-                {
-                    Write-Host "Recycle Bin is NOT enabled" -ForegroundColor Red
-                }
-                Write-Host "Tombstone Lifetime: $($adInfo.TombstoneLifetime) days" -ForegroundColor Cyan
+
                 if ($ExportCSV)
                 {
                     $adInfo.DomainControllers | Export-Csv -Path "$OutputPath\DomainControllers.csv" -NoTypeInformation
