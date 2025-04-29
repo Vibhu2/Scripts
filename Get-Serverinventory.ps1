@@ -383,21 +383,17 @@ function Get-ServerInventory
 
     # Function to get Active Directory information
 
-    function Get-ActiveDirectoryInfo {
+    function Get-ActiveDirectoryInfo
+    {
         param ([string]$ComputerName)
-        try {
-            # Import the ActiveDirectory module if not already loaded
-            if (-not (Get-Module -Name ActiveDirectory -ErrorAction SilentlyContinue)) {
+        try
+        {
+            if (-not (Get-Module -Name ActiveDirectory -ErrorAction SilentlyContinue))
+            {
                 Import-Module ActiveDirectory -ErrorAction Stop
             }
-    
-            # Collect Domain Controllers
             $domainControllers = Get-ADDomainController -Filter * | Select-Object Name, Domain, Forest, OperationMasterRoles, IsReadOnly
-    
-            # Collect All Servers
             $allServers = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } | Select-Object Name, DNSHostName, Enabled, OperatingSystem, OperatingSystemVersion
-    
-            # Collect FSMO Roles
             $fsmoRoles = [PSCustomObject]@{
                 InfrastructureMaster = (Get-ADDomain).InfrastructureMaster
                 PDCEmulator          = (Get-ADDomain).PDCEmulator
@@ -405,26 +401,13 @@ function Get-ServerInventory
                 DomainNamingMaster   = (Get-ADForest).DomainNamingMaster
                 SchemaMaster         = (Get-ADForest).SchemaMaster
             }
-    
-            # Get Domain and Forest Functional Levels
             $domainFunctionalLevel = (Get-ADDomain).DomainMode
             $forestFunctionalLevel = (Get-ADForest).ForestMode
-    
-            # Check Recycle Bin Status
-            try {
-                $recycleBinFeature = Get-ADOptionalFeature -Filter 'Name -eq "Recycle Bin Feature"' -ErrorAction Stop
-                $recycleBinEnabled = $recycleBinFeature.EnabledScopes.Count -gt 0
-            } catch {
-                Write-Warning "Cannot determine Recycle Bin status: $_"
-                $recycleBinEnabled = $null
-            }
-    
-            # Get Tombstone Lifetime
+            $recycleBinEnabled = (Get-ADOptionalFeature -Filter { Name -eq 'Recycle Bin Feature' }).EnabledScopes.Count -gt 0
             $tombstoneLifetime = (Get-ADObject -Identity "CN=Directory Service,CN=Windows NT,CN=Services,$((Get-ADRootDSE).configurationNamingContext)" -Properties tombstoneLifetime).tombstoneLifetime
-    
-            # Collect User Information
             $users = Get-ADUser -Filter * -Properties SamAccountName, ProfilePath, ScriptPath, homeDrive, homeDirectory
-            $userFolderReport = foreach ($user in $users) {
+            $userFolderReport = foreach ($user in $users)
+            {
                 [PSCustomObject]@{
                     SamAccountName = $user.SamAccountName
                     ProfilePath    = if ([string]::IsNullOrEmpty($user.ProfilePath)) { "N/A" } else { $user.ProfilePath }
@@ -434,51 +417,81 @@ function Get-ServerInventory
                 }
             }
             $totalUsers = $users.Count
-    
-            # Collect SYSVOL Scripts
             $scriptBlock = {
-                if (Test-Path -Path "C:\Windows\SYSVOL\sysvol") {
+                if (Test-Path -Path "C:\Windows\SYSVOL\sysvol")
+                {
                     Get-ChildItem -Recurse -Path "C:\Windows\SYSVOL\sysvol" -ErrorAction SilentlyContinue | 
                         Where-Object { $_.Extension -in ".bat", ".cmd", ".ps1", ".vbs" } | 
                         Select-Object FullName, Length, LastWriteTime
-                } else {
+                }
+                else
+                {
                     Write-Output "SYSVOL path not found"
                 }
             }
-            if ($ComputerName -eq $env:COMPUTERNAME) {
+            if ($ComputerName -eq $env:COMPUTERNAME)
+            {
                 $sysvolScripts = & $scriptBlock
-            } else {
+            }
+            else
+            {
                 $sysvolScripts = Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
             }
-    
-            # Collect Privileged Users
             $PUsers = @()
-            try {
+            try
+            {
                 $Members = Get-ADGroupMember -Identity 'Enterprise Admins' -Recursive -ErrorAction SilentlyContinue | Sort-Object Name
-                $PUsers += foreach ($Member in $Members) {
+                $PUsers += foreach ($Member in $Members)
+                {
                     Get-ADUser -Identity $Member.SID -Properties * | Select-Object Name, @{Name = 'Group'; expression = { 'Enterprise Admins' } }, WhenCreated, LastLogonDate, SamAccountName
                 }
-            } catch {
+            }
+            catch
+            {
                 Write-Warning "Enterprise Admins group not found or cannot be accessed"
             }
-            try {
+            try
+            {
                 $Members = Get-ADGroupMember -Identity 'Domain Admins' -Recursive | Sort-Object Name
-                $PUsers += foreach ($Member in $Members) {
+                $PUsers += foreach ($Member in $Members)
+                {
                     Get-ADUser -Identity $Member.SID -Properties * | Select-Object Name, @{Name = 'Group'; expression = { 'Domain Admins' } }, WhenCreated, LastLogonDate, SamAccountName
                 }
-            } catch {
+            }
+            catch
+            {
                 Write-Warning "Domain Admins group not found or cannot be accessed"
             }
-            try {
+            try
+            {
                 $Members = Get-ADGroupMember -Identity 'Schema Admins' -Recursive -ErrorAction SilentlyContinue | Sort-Object Name
-                $PUsers += foreach ($Member in $Members) {
+                $PUsers += foreach ($Member in $Members)
+                {
                     Get-ADUser -Identity $Member.SID -Properties * | Select-Object Name, @{Name = 'Group'; expression = { 'Schema Admins' } }, WhenCreated, LastLogonDate, SamAccountName
                 }
-            } catch {
+            }
+            catch
+            {
                 Write-Warning "Schema Admins group not found or cannot be accessed"
             }
+            try
+            {
+                $forestFunctionalLevel = (Get-ADForest).ForestMode
+                $domainFunctionalLevel = (Get-ADDomain).DomainMode
+            }
+            catch
+            {
+                Write-Warning "cant detect functional leavels"
+            }
+            # Check if Ad recyclebin is enabled
+            try {
+                $RecyclebinStatus = if ((Get-ADOptionalFeature -Filter 'Name -eq "Recycle Bin Feature"').EnabledScopes) {" ENABLED"} else {"Recycle Bin is NOT enabled"}
     
-            # Return the hashtable with all collected data
+            }
+            catch {
+                Write-Warning " Cant detect Recyclebinn status "
+            }
+                
             return @{
                 DomainControllers     = $domainControllers
                 AllServers            = $allServers
@@ -490,14 +503,20 @@ function Get-ServerInventory
                 ForestFunctionalLevel = $forestFunctionalLevel
                 RecycleBinEnabled     = $recycleBinEnabled
                 TombstoneLifetime     = $tombstoneLifetime
+                DomainFunctLev        = $domainFunctionalLevel
+                ForestFunLev          = $forestFunctionalLevel
                 TotalUsers            = $totalUsers
+                ADRecyclebin          = $RecyclebinStatus
+                    
             }
-        } catch {
+        }
+        catch
+        {
             Write-Warning "Error collecting Active Directory information: $_"
             return $null
         }
     }
-    
+        
     # Function to get DNS information
     function Get-DNSInformation
     {
