@@ -381,8 +381,77 @@ function Get-ServerInventory
         }
     }
 
-    # Function to get Active Directory information
+    # Function to get Azure AD Join status
+    function Get-AzureADJoinStatus
+    {
+        param ([string]$ComputerName = $env:COMPUTERNAME)
+        try
+        {
+            # Grab whatever dsregcmd emits
+            $scriptBlock = {
+                $status = dsregcmd /status 2>&1
+                
+                if ($status)
+                {
+                    # Joined (or at least we got output)—return the full status
+                    return $status
+                }
+                else
+                {
+                    # No output ⇒ not joined
+                    return "Server is NOT Azure AD Joined."
+                }
+            }
+            
+            if ($ComputerName -eq $env:COMPUTERNAME)
+            {
+                return & $scriptBlock
+            }
+            else
+            {
+                return Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
+            }
+        }
+        catch
+        {
+            # Command itself failed ⇒ treat as not joined
+            return "Server is NOT Azure AD Joined."
+        }
+    }
+    
+    # Helper function for Azure AD Join status (simplified version)
+    function Get-AzureADJoinStatusSimple
+    {
+        param ([string]$ComputerName = $env:COMPUTERNAME)
+        try
+        {
+            $scriptBlock = {
+                if (dsregcmd /status 2>&1)
+                { 
+                    Write-Output '✅ Joined to Azure AD' 
+                }
+                else
+                { 
+                    Write-Output '❌ Not joined' 
+                }
+            }
+            
+            if ($ComputerName -eq $env:COMPUTERNAME)
+            {
+                return & $scriptBlock
+            }
+            else
+            {
+                return Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
+            }
+        }
+        catch
+        {
+            return "❌ Not joined"
+        }
+    }
 
+    # Function to get Active Directory information
     function Get-ActiveDirectoryInfo
     {
         param ([string]$ComputerName)
@@ -481,48 +550,21 @@ function Get-ServerInventory
             }
             catch
             {
-                Write-Warning "cant detect functional leavels"
+                Write-Warning "Can't detect functional levels"
             }
-            # Check if Ad recyclebin is enabled
+            # Check if AD recyclebin is enabled
             try
             {
-                $RecyclebinStatus = if ((Get-ADOptionalFeature -Filter 'Name -eq "Recycle Bin Feature"').EnabledScopes) { " ENABLED" } else { "Recycle Bin is NOT enabled" }
-    
+                $RecyclebinStatus = if ((Get-ADOptionalFeature -Filter 'Name -eq "Recycle Bin Feature"').EnabledScopes) { "✅ ENABLED" } else { "❌ Recycle Bin is NOT enabled" }
             }
             catch
             {
-                Write-Warning " Cant detect Recyclebinn status "
+                Write-Warning "Can't detect Recyclebin status"
             }
-            try
-            {
-                function Get-AzureADJoinStatus
-                {
-                    try
-                    {
-                        $dsregOutput = dsregcmd /status 2>&1
-                
-                        if ($dsregOutput -match "AzureAdJoined\s*:\s*YES")
-                        {
-                            Write-Output "Server is Azure AD Joined.`n"
-                            return $dsregOutput
-                        }
-                        else
-                        {
-                            return "Server is NOT Azure AD Joined."
-                        }
-                    }
-                    catch
-                    {
-                        return "Server is NOT Azure AD Joined (dsregcmd failed)."
-                    }
-                }
-                $AzureADJoinStatus = Get-AzureADJoinStatus          
-            }
-            catch
-            {
-                Write-Error "Error checking Azure AD Join status: $_"
-            }
-                
+            
+            # Get Azure AD Join Status using the function
+            $AzureADJoinStatus = Get-AzureADJoinStatusSimple
+                              
             return @{
                 DomainControllers     = $domainControllers
                 AllServers            = $allServers
@@ -539,7 +581,6 @@ function Get-ServerInventory
                 TotalADUsers          = $totalUsers
                 ADRecyclebin          = $RecyclebinStatus
                 AzureADJoinStatus     = $AzureADJoinStatus
-                
             }
         }
         catch
@@ -588,6 +629,10 @@ function Get-ServerInventory
     $diskInfo = Get-DiskInformation -ComputerName $ComputerName
     $diskInfo | Format-Table -AutoSize
     if ($ExportCSV) { $diskInfo | Export-Csv -Path "$OutputPath\DiskInfo.csv" -NoTypeInformation }
+
+    Write-SectionHeader "Azure AD JOIN STATUS"
+    $azureADJoinStatus = Get-AzureADJoinStatus -ComputerName $ComputerName
+    $azureADJoinStatus 
 
     Write-SectionHeader "NETWORK CONFIGURATION"
     $networkInfo = Get-NetworkInformation -ComputerName $ComputerName
