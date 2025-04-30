@@ -393,7 +393,7 @@ function Get-ServerInventory
                 Import-Module ActiveDirectory -ErrorAction Stop
             }
             $domainControllers = Get-ADDomainController -Filter * | Select-Object Name, Domain, Forest, OperationMasterRoles, IsReadOnly
-            $allServers = Get-ADComputer -Filter { OperatingSystem -Like "*Server*" } | Select-Object Name, DNSHostName, Enabled, OperatingSystem, OperatingSystemVersion
+            $allServers = Get-ADComputer -Filter { OperatingSystem -Like "Windows Server*" } -Property * | Select-Object Name, IPv4Address, OperatingSystem, OperatingSystemVersion, ENABLED, LastLogonDate, WhenCreated | Sort-Object OperatingSystemVersion | Format-Table -AutoSize
             $fsmoRoles = [PSCustomObject]@{
                 InfrastructureMaster = (Get-ADDomain).InfrastructureMaster
                 PDCEmulator          = (Get-ADDomain).PDCEmulator
