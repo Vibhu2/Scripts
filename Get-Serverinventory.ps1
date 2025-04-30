@@ -645,11 +645,37 @@ function Get-ServerInventory
         }
     }
 
-    # Simple section header
-    function Write-SectionHeader
-    {
-        param ([string]$Title)
-        Write-Host "`n----- $Title -----" -ForegroundColor Cyan
+    # Amazing section header
+    function Write-SectionHeader {
+        param (
+            [Parameter(Mandatory = $true)]
+            [string]$Title,
+            [Parameter(Mandatory = $false)]
+            [ConsoleColor]$BorderColor = [ConsoleColor]::Cyan,
+            [Parameter(Mandatory = $false)]
+            [ConsoleColor]$TextColor = [ConsoleColor]::White,
+            [Parameter(Mandatory = $false)]
+            [int]$Width = 100,
+            [Parameter(Mandatory = $false)]
+            [char]$BorderChar = '='
+        )
+    
+        # Calculate padding - 2 for spaces on each side
+        $padding = [Math]::Max(0, $Width - $Title.Length - 2)
+        $leftPad = [Math]::Floor($padding / 2)
+        $rightPad = $padding - $leftPad
+        
+        $borderLine = $BorderChar.ToString() * $Width
+        $leftPadding = $BorderChar.ToString() * $leftPad
+        $rightPadding = $BorderChar.ToString() * $rightPad
+        
+        Write-Host ""
+        Write-Host $borderLine -ForegroundColor $BorderColor
+        Write-Host "$leftPadding " -ForegroundColor $BorderColor -NoNewline
+        Write-Host $Title -ForegroundColor $TextColor -NoNewline
+        Write-Host " $rightPadding" -ForegroundColor $BorderColor
+        Write-Host $borderLine -ForegroundColor $BorderColor
+        Write-Host ""
     }
 
     # COLLECTION AND OUTPUT SECTION
