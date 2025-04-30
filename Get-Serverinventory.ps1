@@ -35,7 +35,7 @@ function Get-ServerInventory
             }
             $systemInfo = [PSCustomObject]@{
                 # Basic Computer Identification
-                'Computer Name'              = $ComputerName
+                'Computer Name'              = $env:COMPUTERNAME
                 'DNS Hostname'               = $computerInfo.CsDNSHostname
                 'Primary IP'                 = $ipAddress
                 
@@ -589,7 +589,40 @@ function Get-ServerInventory
             return $null
         }
     }
-        
+
+    #function to get Group policy Information
+    function Get-GPOInformation {
+        [CmdletBinding()]
+        param()
+    
+        # Ensure the GroupPolicy module is loaded
+        if (-not (Get-Module -Name GroupPolicy -ListAvailable)) {
+            Import-Module GroupPolicy -ErrorAction Stop
+        }
+    
+        # Retrieve all GPOs
+        $gpos = Get-GPO -All
+    
+        # If no GPOs were found, error out
+        if (-not $gpos) {
+            Write-Error "No Group Policy Objects found in the domain."
+            return
+        }
+        else {
+            # Select and display all desired properties
+            $gpos |
+                Select-Object `
+                    Id,
+                    DisplayName,
+                    GpoStatus,
+                    ModificationTime,
+                    CreationTime,
+                    Description |
+                Sort-Object -Property ModificationTime |
+                Format-Table -AutoSize
+        }
+    }
+            
     # Function to get DNS information
     function Get-DNSInformation
     {
@@ -629,6 +662,12 @@ function Get-ServerInventory
     $diskInfo = Get-DiskInformation -ComputerName $ComputerName
     $diskInfo | Format-Table -AutoSize
     if ($ExportCSV) { $diskInfo | Export-Csv -Path "$OutputPath\DiskInfo.csv" -NoTypeInformation }
+
+    Write-SectionHeader " GROUP POLICY INFORMATION"
+
+    $GPOName = Get-GPOInformation
+    $GPOName | Format-Table -AutoSize
+    if ($ExportCSV) { $GPOName | Export-Csv -Path "$OutputPath\GPOInfo.csv" -NoTypeInformation }
 
     Write-SectionHeader "Azure AD JOIN STATUS"
     $azureADJoinStatus = Get-AzureADJoinStatus -ComputerName $ComputerName
