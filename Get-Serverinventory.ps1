@@ -462,7 +462,8 @@ function Get-ServerInventory
                 Import-Module ActiveDirectory -ErrorAction Stop
             }
             $domainControllers = Get-ADDomainController -Filter * | Select-Object Name, Domain, Forest, OperationMasterRoles, IsReadOnly
-            $allServers = Get-ADComputer -Filter { OperatingSystem -Like "Windows Server*" } -Property * | Select-Object Name, IPv4Address, OperatingSystem, OperatingSystemVersion, ENABLED, LastLogonDate, WhenCreated | Sort-Object OperatingSystemVersion | Format-Table -AutoSize
+            $allServers = Get-ADComputer -Filter { OperatingSystem -Like "Windows Server*" } -Property * | Select-Object Name, IPv4Address, OperatingSystem, OperatingSystemVersion, ENABLED, LastLogonDate, WhenCreated | Sort-Object OperatingSystemVersion 
+
             $fsmoRoles = [PSCustomObject]@{
                 InfrastructureMaster = (Get-ADDomain).InfrastructureMaster
                 PDCEmulator          = (Get-ADDomain).PDCEmulator
@@ -850,10 +851,11 @@ function Get-ServerInventory
                 Write-Host "Domain Functional Level: $($adInfo.DomainFunctionalLevel)" -ForegroundColor Cyan
                 Write-Host "Forest Functional Level: $($adInfo.ForestFunctionalLevel)" -ForegroundColor Cyan
                 Write-Host "Tombstone Lifetime: $($adInfo.TombstoneLifetime) days" -ForegroundColor Cyan
-                Write-Host "SERVERS IN DOMAIN:" -ForegroundColor Yellow
-                Write-host "Total AD Users: $($adInfo.TotalADUsers)" -ForegroundColor Cyan
+                Write-Host "SERVERS IN DOMAIN: $($allServers.count)" -ForegroundColor Cyan
+                Write-host "Total AD Users:$($adInfo.TotalADUsers)" -ForegroundColor Cyan
                 Write-host "AD Recyclebin: $($adInfo.ADRecyclebin)" -ForegroundColor Cyan
                 Write-host "Azure AD Join Status: $($adInfo.AzureADJoinStatus)" -ForegroundColor Cyan
+                Write-SectionHeader "LIST OF ALL SERVERS IN DOMAIN" 
                 $adInfo.AllServers | Format-Table -AutoSize
                 Write-SectionHeader "AD USER REPORT" 
                 Write-Host "USER FOLDERS INFORMATION:" -ForegroundColor Yellow
