@@ -655,12 +655,12 @@ function Get-ServerInventory
             [Parameter(Mandatory = $false)]
             [ConsoleColor]$TextColor = [ConsoleColor]::White,
             [Parameter(Mandatory = $false)]
-            [int]$Width = 100,
+            [int]$Width = 80,
             [Parameter(Mandatory = $false)]
             [char]$BorderChar = '='
         )
     
-        # Calculate padding - 2 for spaces on each side
+        # Calculate padding for proper centering
         $padding = [Math]::Max(0, $Width - $Title.Length - 2)
         $leftPad = [Math]::Floor($padding / 2)
         $rightPad = $padding - $leftPad
@@ -669,11 +669,20 @@ function Get-ServerInventory
         $leftPadding = $BorderChar.ToString() * $leftPad
         $rightPadding = $BorderChar.ToString() * $rightPad
         
+        # Create the complete middle line with title
+        $titleLine = "$leftPadding $Title $rightPadding"
+        
+        # If the title line isn't exactly Width characters, adjust it
+        if ($titleLine.Length -ne $Width) {
+            # Fix the right padding to ensure exact width
+            $rightPadding = $BorderChar.ToString() * ($rightPad + ($Width - $titleLine.Length))
+            $titleLine = "$leftPadding $Title $rightPadding"
+        }
+        
+        # Output with proper formatting
         Write-Host ""
         Write-Host $borderLine -ForegroundColor $BorderColor
-        Write-Host "$leftPadding " -ForegroundColor $BorderColor -NoNewline
-        Write-Host $Title -ForegroundColor $TextColor -NoNewline
-        Write-Host " $rightPadding" -ForegroundColor $BorderColor
+        Write-Host $titleLine -ForegroundColor $BorderColor
         Write-Host $borderLine -ForegroundColor $BorderColor
         Write-Host ""
     }
@@ -831,7 +840,7 @@ function Get-ServerInventory
         $isDomainController = (Get-WmiObject -Class Win32_ComputerSystem).DomainRole -ge 4
         if ($isDomainController)
         {
-            $adInfo = Get-ActiveDirectoryInfo -ComputerName $ComputerName
+            $adInfo = Get-ActiveDirectoryInfo -ComputerName $ComputerName -ErrorAction SilentlyContinue
             if ($adInfo)
             {
                 Write-Host "DOMAIN CONTROLLERS:" -ForegroundColor Yellow
@@ -846,6 +855,7 @@ function Get-ServerInventory
                 Write-host "AD Recyclebin: $($adInfo.ADRecyclebin)" -ForegroundColor Cyan
                 Write-host "Azure AD Join Status: $($adInfo.AzureADJoinStatus)" -ForegroundColor Cyan
                 $adInfo.AllServers | Format-Table -AutoSize
+                Write-SectionHeader "AD USER REPORT" 
                 Write-Host "USER FOLDERS INFORMATION:" -ForegroundColor Yellow
                 $adInfo.UserFolderReport | Format-Table -AutoSize
                 Write-Host "LOGON SCRIPTS IN SYSVOL:" -ForegroundColor Yellow
