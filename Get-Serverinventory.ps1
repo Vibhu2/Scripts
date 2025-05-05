@@ -1,5 +1,6 @@
 function Get-ServerInventory
 {
+    
     [CmdletBinding()]
     param (
         [string]$ComputerName = $env:COMPUTERNAME,
@@ -8,7 +9,7 @@ function Get-ServerInventory
         [switch]$SkipStore,
         [switch]$IncludeAD
     )
-
+#=============================================================== Helper Functions ===============================================================
     # Create output directory if exporting
     if ($ExportCSV -and !(Test-Path -Path $OutputPath))
     {
@@ -741,7 +742,7 @@ function Get-ServerInventory
         Write-Host $borderLine -ForegroundColor $BorderColor
         Write-Host ""
     }
-
+#===================================================== Data Collection and Output: ====================================================
     # COLLECTION AND OUTPUT SECTION
     Write-SectionHeader "SYSTEM INFORMATION"
     $systemInfo = Get-SystemInformation -ComputerName $ComputerName
@@ -945,7 +946,7 @@ function Get-ServerInventory
         Write-Host "`nInventory data exported to: $OutputPath" -ForegroundColor Green
     }
 }
-
+#===================================================== Script Execution ==================================================================
 Clear-Host
 New-Item -Path 'C:\Realtime\' -ItemType Directory -Force
 $sharepath = 'C:\Realtime\'
