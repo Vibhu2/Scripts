@@ -109,81 +109,89 @@ function Get-ServerInventory
     }
 
     # Function to get network information
-function Get-NetworkInformation {
-    [CmdletBinding()]
-    param (
-        [string]$ComputerName = $env:COMPUTERNAME
-    )
+    function Get-NetworkInformation
+    {
+        [CmdletBinding()]
+        param (
+            [string]$ComputerName = $env:COMPUTERNAME
+        )
 
-    Write-sectionheader "Network Configuration for $ComputerName"
+        Write-sectionheader "Network Configuration for $ComputerName"
     
-    # Check if it's the local computer
-    $isLocalComputer = ($ComputerName -eq $env:COMPUTERNAME) -or ($ComputerName -eq "localhost") -or ($ComputerName -eq ".")
+        # Check if it's the local computer
+        $isLocalComputer = ($ComputerName -eq $env:COMPUTERNAME) -or ($ComputerName -eq "localhost") -or ($ComputerName -eq ".")
     
-    try {
-        # Get all adapters information at once - use different approach for local vs remote
-        if ($isLocalComputer) {
-            $adapters = Get-NetIPConfiguration -ErrorAction Stop
-            $allNetAdapters = Get-NetAdapter -ErrorAction Stop
-            $allDnsServers = Get-DnsClientServerAddress -ErrorAction Stop
-        }
-        else {
-            # For remote computers, use -ComputerName parameter when available
-            $adapters = Get-NetIPConfiguration -ComputerName $ComputerName -ErrorAction Stop
+        try
+        {
+            # Get all adapters information at once - use different approach for local vs remote
+            if ($isLocalComputer)
+            {
+                $adapters = Get-NetIPConfiguration -ErrorAction Stop
+                $allNetAdapters = Get-NetAdapter -ErrorAction Stop
+                $allDnsServers = Get-DnsClientServerAddress -ErrorAction Stop
+            }
+            else
+            {
+                # For remote computers, use -ComputerName parameter when available
+                $adapters = Get-NetIPConfiguration -ComputerName $ComputerName -ErrorAction Stop
             
-            # Some cmdlets don't have -ComputerName parameter, fall back to direct query with filters
-            $allNetAdapters = Get-WmiObject -Class Win32_NetworkAdapter -ComputerName $ComputerName -ErrorAction Stop
-            $allNetAdapterConfigs = Get-WmiObject -Class Win32_NetworkAdapterConfiguration -ComputerName $ComputerName -ErrorAction Stop
+                # Some cmdlets don't have -ComputerName parameter, fall back to direct query with filters
+                $allNetAdapters = Get-WmiObject -Class Win32_NetworkAdapter -ComputerName $ComputerName -ErrorAction Stop
+                $allNetAdapterConfigs = Get-WmiObject -Class Win32_NetworkAdapterConfiguration -ComputerName $ComputerName -ErrorAction Stop
+            }
         }
-    }
-    catch {
-        Write-Host "Failed to retrieve network configuration for $ComputerName" -ForegroundColor Red
-        Write-Host "Error: $_" -ForegroundColor Red
-        Write-Host "`nTroubleshooting tips:" -ForegroundColor Yellow
-        Write-Host " - Ensure the remote computer is online and accessible" -ForegroundColor Yellow
-        Write-Host " - Check if the necessary Windows firewall rules are enabled" -ForegroundColor Yellow
-        return
-    }
+        catch
+        {
+            Write-Host "Failed to retrieve network configuration for $ComputerName" -ForegroundColor Red
+            Write-Host "Error: $_" -ForegroundColor Red
+            Write-Host "`nTroubleshooting tips:" -ForegroundColor Yellow
+            Write-Host " - Ensure the remote computer is online and accessible" -ForegroundColor Yellow
+            Write-Host " - Check if the necessary Windows firewall rules are enabled" -ForegroundColor Yellow
+            return
+        }
 
-    foreach ($adapter in $adapters) {
-        Write-Host "`n======================================" -ForegroundColor Cyan
-        Write-Host "Adapter: $($adapter.InterfaceAlias)" -ForegroundColor Yellow
-        Write-Host "--------------------------------------"
+        foreach ($adapter in $adapters)
+        {
+            Write-Host "`n======================================" -ForegroundColor Cyan
+            Write-Host "Adapter: $($adapter.InterfaceAlias)" -ForegroundColor Yellow
+            Write-Host "--------------------------------------"
         
-        if ($isLocalComputer) {
-            # Use filtered collections instead of additional queries
-            $netAdapter = $allNetAdapters | Where-Object { $_.InterfaceIndex -eq $adapter.InterfaceIndex }
-            $dns = $allDnsServers | Where-Object { $_.InterfaceIndex -eq $adapter.InterfaceIndex }
+            if ($isLocalComputer)
+            {
+                # Use filtered collections instead of additional queries
+                $netAdapter = $allNetAdapters | Where-Object { $_.InterfaceIndex -eq $adapter.InterfaceIndex }
+                $dns = $allDnsServers | Where-Object { $_.InterfaceIndex -eq $adapter.InterfaceIndex }
             
-            Write-Host " Description        : $($adapter.InterfaceDescription)"
-            Write-Host " IPv4 Address       : $($adapter.IPv4Address.IPAddress)"
-            Write-Host " IPv6 Address       : $($adapter.IPv6Address.IPAddress)"
-            Write-Host " Subnet Prefix      : $($adapter.IPv4Address.PrefixLength)"
-            Write-Host " Default Gateway    : $($adapter.IPv4DefaultGateway.NextHop)"
-            Write-Host " DNS Servers        : $($dns.ServerAddresses -join ', ')"
-            Write-Host " DHCP Enabled       : $($adapter.DhcpEnabled)"
-            Write-Host " MAC Address        : $($netAdapter.MacAddress)"
-            Write-Host " Interface Index    : $($adapter.InterfaceIndex)"
-            Write-Host " Status             : $($netAdapter.Status)"
-        }
-        else {
-            # For remote computers, use WMI data
-            $netAdapter = $allNetAdapters | Where-Object { $_.DeviceID -eq $adapter.InterfaceIndex }
-            $netAdapterConfig = $allNetAdapterConfigs | Where-Object { $_.InterfaceIndex -eq $adapter.InterfaceIndex }
+                Write-Host " Description        : $($adapter.InterfaceDescription)"
+                Write-Host " IPv4 Address       : $($adapter.IPv4Address.IPAddress)"
+                Write-Host " IPv6 Address       : $($adapter.IPv6Address.IPAddress)"
+                Write-Host " Subnet Prefix      : $($adapter.IPv4Address.PrefixLength)"
+                Write-Host " Default Gateway    : $($adapter.IPv4DefaultGateway.NextHop)"
+                Write-Host " DNS Servers        : $($dns.ServerAddresses -join ', ')"
+                Write-Host " DHCP Enabled       : $($adapter.DhcpEnabled)"
+                Write-Host " MAC Address        : $($netAdapter.MacAddress)"
+                Write-Host " Interface Index    : $($adapter.InterfaceIndex)"
+                Write-Host " Status             : $($netAdapter.Status)"
+            }
+            else
+            {
+                # For remote computers, use WMI data
+                $netAdapter = $allNetAdapters | Where-Object { $_.DeviceID -eq $adapter.InterfaceIndex }
+                $netAdapterConfig = $allNetAdapterConfigs | Where-Object { $_.InterfaceIndex -eq $adapter.InterfaceIndex }
             
-            Write-Host " Description        : $($adapter.InterfaceDescription)"
-            Write-Host " IPv4 Address       : $($adapter.IPv4Address.IPAddress)"
-            Write-Host " IPv6 Address       : $($adapter.IPv6Address.IPAddress)"
-            Write-Host " Subnet Prefix      : $($adapter.IPv4Address.PrefixLength)"
-            Write-Host " Default Gateway    : $($adapter.IPv4DefaultGateway.NextHop)"
-            Write-Host " DNS Servers        : $($netAdapterConfig.DNSServerSearchOrder -join ', ')"
-            Write-Host " DHCP Enabled       : $($netAdapterConfig.DHCPEnabled)"
-            Write-Host " MAC Address        : $($netAdapterConfig.MACAddress)"
-            Write-Host " Interface Index    : $($adapter.InterfaceIndex)"
-            Write-Host " Status             : $($netAdapter.NetConnectionStatus)"
+                Write-Host " Description        : $($adapter.InterfaceDescription)"
+                Write-Host " IPv4 Address       : $($adapter.IPv4Address.IPAddress)"
+                Write-Host " IPv6 Address       : $($adapter.IPv6Address.IPAddress)"
+                Write-Host " Subnet Prefix      : $($adapter.IPv4Address.PrefixLength)"
+                Write-Host " Default Gateway    : $($adapter.IPv4DefaultGateway.NextHop)"
+                Write-Host " DNS Servers        : $($netAdapterConfig.DNSServerSearchOrder -join ', ')"
+                Write-Host " DHCP Enabled       : $($netAdapterConfig.DHCPEnabled)"
+                Write-Host " MAC Address        : $($netAdapterConfig.MACAddress)"
+                Write-Host " Interface Index    : $($adapter.InterfaceIndex)"
+                Write-Host " Status             : $($netAdapter.NetConnectionStatus)"
+            }
         }
     }
-}
 
     # Function to get share information
     function Get-ShareInformation
@@ -632,12 +640,14 @@ function Get-NetworkInformation {
     }
 
     #function to get Group policy Information
-    function Get-GPOInformation {
+    function Get-GPOInformation
+    {
         [CmdletBinding()]
         param()
     
         # Ensure the GroupPolicy module is loaded
-        if (-not (Get-Module -Name GroupPolicy -ListAvailable)) {
+        if (-not (Get-Module -Name GroupPolicy -ListAvailable))
+        {
             Import-Module GroupPolicy -ErrorAction Stop
         }
     
@@ -645,20 +655,22 @@ function Get-NetworkInformation {
         $gpos = Get-GPO -All
     
         # If no GPOs were found, error out
-        if (-not $gpos) {
+        if (-not $gpos)
+        {
             Write-Error "No Group Policy Objects found in the domain."
             return
         }
-        else {
+        else
+        {
             # Select and display all desired properties
             $gpos |
                 Select-Object `
                     Id,
-                    DisplayName,
-                    GpoStatus,
-                    ModificationTime,
-                    CreationTime,
-                    Description |
+                DisplayName,
+                GpoStatus,
+                ModificationTime,
+                CreationTime,
+                Description |
                 Sort-Object -Property ModificationTime |
                 Format-Table -AutoSize
         }
@@ -687,7 +699,8 @@ function Get-NetworkInformation {
     }
 
     # Amazing section header
-    function Write-SectionHeader {
+    function Write-SectionHeader
+    {
         param (
             [Parameter(Mandatory = $true)]
             [string]$Title,
@@ -714,7 +727,8 @@ function Get-NetworkInformation {
         $titleLine = "$leftPadding $Title $rightPadding"
         
         # If the title line isn't exactly Width characters, adjust it
-        if ($titleLine.Length -ne $Width) {
+        if ($titleLine.Length -ne $Width)
+        {
             # Fix the right padding to ensure exact width
             $rightPadding = $BorderChar.ToString() * ($rightPad + ($Width - $titleLine.Length))
             $titleLine = "$leftPadding $Title $rightPadding"
