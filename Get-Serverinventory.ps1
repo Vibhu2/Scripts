@@ -9,7 +9,8 @@ function Get-ServerInventory
         [switch]$SkipStore,
         [switch]$IncludeAD
     )
-#=============================================================== Helper Functions ===============================================================
+    #====================================================== Helper Functions ==================================================================
+    #region Helper Functions
     # Create output directory if exporting
     if ($ExportCSV -and !(Test-Path -Path $OutputPath))
     {
@@ -699,7 +700,34 @@ function Get-ServerInventory
         }
     }
 
-    # Amazing section header
+    # Function to Get User login information on Terminal server
+
+    function Get-RDSUserInformation
+    {
+        param ([string]$ComputerName)
+        try
+        {
+            $scriptBlock = {
+                Get-RDUserSession | Select-Object UserName, SessionId, SessionState, HostServer, ClientName, ClientIP, LogonTime
+            }
+            if ($ComputerName -eq $env:COMPUTERNAME)
+            {
+                $userSessions = & $scriptBlock
+            }
+            else
+            {
+                $userSessions = Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock
+            }
+            return $userSessions
+        }
+        catch
+        {
+            Write-Warning "Error collecting RDS user information: $_"
+            return $null
+        }
+    }
+
+    # Amazing section header ( Most important for consistent outputs)
     function Write-SectionHeader
     {
         param (
@@ -742,7 +770,9 @@ function Get-ServerInventory
         Write-Host $borderLine -ForegroundColor $BorderColor
         Write-Host ""
     }
-#===================================================== Data Collection and Output: ====================================================
+    #endregion Helper Functions 
+    #===================================================== Data Collection and Output: ========================================================
+    #region Data Collection and Output
     # COLLECTION AND OUTPUT SECTION
     Write-SectionHeader "SYSTEM INFORMATION"
     $systemInfo = Get-SystemInformation -ComputerName $ComputerName
@@ -945,8 +975,10 @@ function Get-ServerInventory
     {
         Write-Host "`nInventory data exported to: $OutputPath" -ForegroundColor Green
     }
+    #endregion Data Collection and Output
 }
-#===================================================== Script Execution ==================================================================
+#========================================================== Script Execution ==================================================================
+#region Script Execution
 Clear-Host
 New-Item -Path 'C:\Realtime\' -ItemType Directory -Force
 $sharepath = 'C:\Realtime\'
@@ -960,3 +992,5 @@ Write-Host "Transcript will be saved to: $Transcript"
 Start-Transcript -Path $Transcript
 Get-ServerInventory -IncludeAD
 Stop-Transcript
+#endregion Script Execution
+#========================================================== End of Script =====================================================================
