@@ -60,6 +60,7 @@ function Get-inactiveComputers90Daysplus
 }
 Get-inactiveComputers90Daysplus
 
+#_________________________________________________________________________________________________________________________________________
 function Get-AdAccountWithNoLogin
 {
 
@@ -104,8 +105,8 @@ Function Get-ExpiredUseraccounts
     Write-Output "`nNumber of expired user accounts: $($expiredUsers.Count)`n"
 
 }
-
-
+Get-ExpiredUseraccounts
+#_________________________________________________________________________________________________________________________________________
 Import-Module ActiveDirectory
 
 # Function 1: Users that don't require a password
@@ -129,7 +130,7 @@ function Get-NoPasswordRequiredUsers
 
 # Run the function
 Get-NoPasswordRequiredUsers
-
+#_________________________________________________________________________________________________________________________________________
 
 # Function 2: Users with password never expires + last logon info
 function Get-PasswordNeverExpiresUsers
@@ -150,7 +151,7 @@ function Get-PasswordNeverExpiresUsers
     Write-Output "`nCount: $($sortedUsers.Count)`n"
 }
 
-
+#_________________________________________________________________________________________________________________________________________
 # Function 3: Admins with passwords older than 1 year
 function Get-OldAdminPasswords
 {
