@@ -771,7 +771,891 @@ function Get-ServerInventory
         Write-Host ""
     }
     #endregion Helper Functions 
+
+    #=================================================================== New Section ===================================================================
+    function Get-inactiveUsers90Daysplus
+    {
+        Import-Module ActiveDirectory
+
+        # Define the inactivity threshold (90 days ago)
+        $daysInactive = 90
+        $time = (Get-Date).AddDays(-$daysInactive)
+
+        #Write-Output "Finding users inactive since $($time)...`n"
+
+        # Get inactive users
+        $inactiveUsers = Get-ADUser -Filter { enabled -eq $true -and lastLogonTimestamp -lt $time } -Properties lastLogonTimestamp |
+            Select-Object Name, SamAccountName, @{Name = "LastLogonDate"; Expression = { [DateTime]::FromFileTime($_.lastLogonTimestamp) } }
+
+        Write-Output "Inactive Users (90+ days):"
+        Write-Output "Total Number of Inactive Computers: $($inactiveUsers.Count)"
+        $inactiveUsers | Sort-Object -Property LastLogonDate
+    }
+    Get-inactiveUsers90Daysplus
+
+    #_________________________________________________________________________________________________________________________________________
+
+    function Get-inactiveComputers90Daysplus
+    {
+        # Set threshold to 90 days ago
+        $daysInactive = 90
+        $thresholdDate = (Get-Date).AddDays(-$daysInactive)
+
+        Write-Output "Finding computers inactive for 90 days or more (since $($thresholdDate))...`n"
+
+        # Get inactive computers
+        $inactiveComputers = Get-ADComputer -Filter {
+            Enabled -eq $true -and lastLogonTimestamp -lt $thresholdDate
+        } -Properties lastLogonTimestamp, DNSHostName |
+            Select-Object Name, DNSHostName,
+            @{Name = "LastLogonDate"; Expression = { [DateTime]::FromFileTime($_.lastLogonTimestamp) } },
+            @{Name = "IPAddress"; Expression = {
+                    if ($_.DNSHostName)
+                    {
+                        try
+                        {
+                ($res = Resolve-DnsName $_.DNSHostName -ErrorAction Stop | Where-Object { $_.Type -eq "A" })[0].IPAddress
+                        }
+                        catch
+                        {
+                            "Unresolved"
+                        }
+                    }
+                    else
+                    {
+                        "No DNSHostName"
+                    }
+                }
+            }
+
+        # Output to console
+        Write-Output "Inactive Computers (90+ days):"
+        Write-Output "Total Number of Inactive Computers: $($inactiveComputers.Count)"
+        $inactiveComputers | Sort-Object -Property LastLogonDate
+    }
+    Get-inactiveComputers90Daysplus
+
+    #_________________________________________________________________________________________________________________________________________
+    function Get-AdAccountWithNoLogin
+    {
+
+        Import-Module ActiveDirectory
+
+        Write-Output "`n--- Accounts With No Logon History ---`n"
+
+        # Find users with no logon history
+        $neverLoggedOnUsers = Get-ADUser -Filter { enabled -eq $true -and lastLogonTimestamp -notlike "*" } -Properties lastLogonTimestamp, whenCreated |
+            Select-Object Name, SamAccountName, Enabled, whenCreated
+
+        Write-Output "Users with no logon history:"
+        $neverLoggedOnUsers | sort-object -property WhenCreated
+
+        Write-Output "`nNumber of users with no logon history: $($neverLoggedOnUsers.Count)`n"
+
+
+    }
+    get-AdAccountWithNoLogin
+
+    #_________________________________________________________________________________________________________________________________________
+
+    Function Get-ExpiredUseraccounts
+    {
+        Import-Module ActiveDirectory
+
+        # Get current date in FILETIME format
+        $currentFileTime = [DateTime]::UtcNow.ToFileTime()
+
+        Write-Output "`n--- Expired User Accounts ---`n"
+
+        # Find expired user accounts (accountExpires not 0 or 9223372036854775807 and less than current time)
+        $expiredUsers = Get-ADUser -Filter {
+            accountExpires -lt $currentFileTime -and accountExpires -ne 0 -and accountExpires -ne 9223372036854775807
+        } -Properties accountExpires, SamAccountName, Enabled |
+            Select-Object Name, SamAccountName, Enabled, @{Name = "AccountExpires"; Expression = { [DateTime]::FromFileTime($_.accountExpires) } }
+
+        # Output to console
+        Write-Output "Expired user accounts:"
+        $expiredUsers | Sort-object -property accountExpires
+
+        Write-Output "`nNumber of expired user accounts: $($expiredUsers.Count)`n"
+
+    }
+    Get-ExpiredUseraccounts
+    #_________________________________________________________________________________________________________________________________________
+    Import-Module ActiveDirectory
+
+    # Function 1: Users that don't require a password
+    function Get-NoPasswordRequiredUsers
+    {
+        Write-Output "`n--- Users That Don't Require a Password ---`n"
+
+        $users = Get-ADUser -Filter { PasswordNotRequired -eq $true -and Enabled -eq $true } -Properties PasswordNotRequired, whenCreated |
+            Select-Object Name, SamAccountName, Enabled, whenCreated
+
+        if ($users.Count -eq 0)
+        {
+            Write-Output "✅ No users found with 'PasswordNotRequired' enabled."
+        }
+        else
+        {
+            $users | Format-Table -AutoSize
+            Write-Output "`nCount: $($users.Count)`n"
+        }
+    }
+
+    # Run the function
+    Get-NoPasswordRequiredUsers
+    #_________________________________________________________________________________________________________________________________________
+
+    # Function 2: Users with password never expires + last logon info
+    function Get-PasswordNeverExpiresUsers
+    {
+        Write-Output "`n--- Users With Passwords Set to Never Expire ---`n"
+
+        $users = Get-ADUser -Filter { PasswordNeverExpires -eq $true -and Enabled -eq $true } -Properties PasswordNeverExpires, whenCreated, lastLogonTimestamp |
+            Select-Object Name, SamAccountName, Enabled, whenCreated,
+            @{Name = "LastLogon"; Expression = { if ($_.lastLogonTimestamp) { [DateTime]::FromFileTime($_.lastLogonTimestamp) } else { "Never Logged On" } } }
+
+        # Sort by LastLogon (handles string and DateTime sorting by treating 'Never Logged On' as latest)
+        $sortedUsers = $users | Sort-Object @{ Expression = { 
+                if ($_.'LastLogon' -is [datetime]) { $_.'LastLogon' } else { [DateTime]::MaxValue } 
+            }
+        }
+
+        $sortedUsers | Format-Table -AutoSize
+        Write-Output "`nCount: $($sortedUsers.Count)`n"
+    }
+
+    #_________________________________________________________________________________________________________________________________________
+    # Function 3: Admins with passwords older than 1 year
+    function Get-OldAdminPasswords
+    {
+        Write-Output "`n--- Admins With Passwords Older Than 1 Year ---`n"
+
+        $adminGroup = "Domain Admins"
+        $threshold = (Get-Date).AddDays(-365)
+
+        $admins = Get-ADGroupMember -Identity $adminGroup -Recursive | Where-Object { $_.objectClass -eq 'user' }
+
+        $oldPasswordAdmins = foreach ($admin in $admins)
+        {
+            $user = Get-ADUser $admin.SamAccountName -Properties PasswordLastSet, Enabled
+            if ($user.PasswordLastSet -lt $threshold)
+            {
+                [PSCustomObject]@{
+                    Name            = $user.Name
+                    SamAccountName  = $user.SamAccountName
+                    Enabled         = $user.Enabled
+                    PasswordLastSet = $user.PasswordLastSet
+                }
+            }
+        }
+
+        $oldPasswordAdmins | sort-object -property PasswordLastSet | Format-Table -AutoSize
+        Write-Output "`nCount: $($oldPasswordAdmins.Count)`n"
+    }
+    Get-OldAdminPasswords
+
+    #_________________________________________________________________________________________________________________________________________
+
+    function Get-EmptyADGroups
+    {
+        Write-Output "`n--- Empty Active Directory Groups (Excluding All Default Groups) ---`n"
+
+        # Exclude default groups
+        $excludeGroups = @(
+            "Domain Admins", "Domain Users", "Domain Guests", "Enterprise Admins", "Schema Admins",
+            "Administrators", "Users", "Guests", "Account Operators", "Backup Operators",
+            "Print Operators", "Server Operators", "Replicator", "DnsAdmins", "DnsUpdateProxy",
+            "Cert Publishers", "Read-only Domain Controllers", "Group Policy Creator Owners",
+            "Access Control Assistance Operators", "ADSyncBrowse", "ADSyncOperators", "ADSyncPasswordSet",
+            "Allowed RODC Password Replication Group", "Certificate Service DCOM Access", "Cloneable Domain Controllers",
+            "Cryptographic Operators", "DHCP Administrators", "DHCP Users", "Distributed COM Users", 
+            "Enterprise Key Admins", "Enterprise Read-only Domain Controllers", "Event Log Readers", "Hyper-V Administrators",
+            "Incoming Forest Trust Builders", "Key Admins", "Network Configuration Operators", "Office 365 Public Folder Administration",
+            "Performance Log Users", "Performance Monitor Users", "Protected Users", "RAS and IAS Servers", 
+            "RDS Endpoint Servers", "RDS Management Servers", "RDS Remote Access Servers", "Remote Management Users",
+            "Storage Replica Administrators"
+        )
+
+        # Get all groups excluding the default ones
+        $allGroups = Get-ADGroup -Filter * -Properties whenCreated, whenChanged |
+            Where-Object { $excludeGroups -notcontains $_.Name }
+
+        # Filter and check for empty groups
+        $emptyGroups = foreach ($group in $allGroups)
+        {
+            $members = Get-ADGroupMember -Identity $group.DistinguishedName -ErrorAction SilentlyContinue
+            if (-not $members)
+            {
+                [PSCustomObject]@{
+                    Name           = $group.Name
+                    SamAccountName = $group.SamAccountName
+                    Created        = $group.whenCreated
+                    Modified       = $group.whenChanged
+                }
+            }
+        }
+
+        if ($emptyGroups.Count -eq 0)
+        {
+            Write-Output "✅ No empty non-default groups were found in Active Directory."
+        }
+        else
+        {
+            # Sort by Created date (ascending order)
+            $emptyGroups | Sort-Object Created | Format-Table -AutoSize
+            Write-Output "`nCount: $($emptyGroups.Count)`n"
+        }
+    }
+
+    # Run the function
+    Get-EmptyADGroups
+
+    #_________________________________________________________________________________________________________________________________________
+    function Get-ADGroupsWithMemberCount
+    {
+        Write-Output "`n--- Active Directory Groups with User Count (Sorted by Member Count) ---`n"
+
+        # Exclude default groups
+        $excludeGroups = @(
+            "Domain Admins", "Domain Users", "Domain Guests", "Enterprise Admins", "Schema Admins",
+            "Administrators", "Users", "Guests", "Account Operators", "Backup Operators",
+            "Print Operators", "Server Operators", "Replicator", "DnsAdmins", "DnsUpdateProxy",
+            "Cert Publishers", "Read-only Domain Controllers", "Group Policy Creator Owners",
+            "Access Control Assistance Operators", "ADSyncBrowse", "ADSyncOperators", "ADSyncPasswordSet",
+            "Allowed RODC Password Replication Group", "Certificate Service DCOM Access", "Cloneable Domain Controllers",
+            "Cryptographic Operators", "DHCP Administrators", "DHCP Users", "Distributed COM Users", 
+            "Enterprise Key Admins", "Enterprise Read-only Domain Controllers", "Event Log Readers", "Hyper-V Administrators",
+            "Incoming Forest Trust Builders", "Key Admins", "Network Configuration Operators", "Office 365 Public Folder Administration",
+            "Performance Log Users", "Performance Monitor Users", "Protected Users", "RAS and IAS Servers", 
+            "RDS Endpoint Servers", "RDS Management Servers", "RDS Remote Access Servers", "Remote Management Users",
+            "Storage Replica Administrators"
+        )
+
+        # Get all groups excluding the default ones
+        $allGroups = Get-ADGroup -Filter * -Properties whenCreated, whenChanged |
+            Where-Object { $excludeGroups -notcontains $_.Name }
+
+        # Filter and check for groups, including empty and non-empty ones
+        $groupDetails = foreach ($group in $allGroups)
+        {
+            $members = Get-ADGroupMember -Identity $group.DistinguishedName -ErrorAction SilentlyContinue
+            $memberCount = $members.Count
+            [PSCustomObject]@{
+                SamAccountName = $group.SamAccountName
+                MemberCount    = $memberCount
+                Created        = $group.whenCreated
+                Modified       = $group.whenChanged
+            }
+        }
+
+        if ($groupDetails.Count -eq 0)
+        {
+            Write-Output "✅ No groups were found in Active Directory."
+        }
+        else
+        {
+            # Sort by MemberCount (empty groups will appear on top) and display results
+            $groupDetails | Sort-Object MemberCount, Created | Format-Table -AutoSize
+            Write-Output "`nCount: $($groupDetails.Count)`n"
+        }
+    }
+
+    # Run the function
+    Get-ADGroupsWithMemberCount
+
+    #_________________________________________________________________________________________________________________________________________
+    function Get-UnusedGPOs
+    {
+        Write-Output "`n--- Unused GPOs (Not Linked to Domain or OU) with Version Info ---`n"
+    
+        # Ensure GroupPolicy module is loaded
+        Import-Module GroupPolicy -ErrorAction Stop
+
+        $unusedGPOs = @()
+
+        # Retrieve all GPOs
+        $allGPOs = Get-GPO -All
+
+        foreach ($gpo in $allGPOs)
+        {
+            # Generate XML report for this GPO
+            $xmlReport = Get-GPOReport -Guid $gpo.Id -ReportType Xml
+
+            # Load into XML object
+            [xml]$doc = $xmlReport
+
+            # Count the <Link> nodes under GPO/LinksTo
+            $linkCount = $doc.GPO.LinksTo.Link.Count
+
+            if ($linkCount -eq 0)
+            {
+                $unusedGPOs += [PSCustomObject]@{
+                    Name            = $gpo.DisplayName
+                    UserVersion     = [int]$doc.GPO.UserVersion
+                    ComputerVersion = [int]$doc.GPO.ComputerVersion
+                    Created         = $gpo.CreationTime
+                    Modified        = $gpo.ModificationTime
+                    ID              = $gpo.Id
+                }
+            }
+        }
+
+        if ($unusedGPOs.Count -eq 0)
+        {
+            Write-Output "✅ No unused GPOs found."
+        }
+        else
+        {
+            # Sort by CreationTime and display, with ID last
+            $unusedGPOs |
+                Sort-Object Created |
+                Format-Table Name, UserVersion, ComputerVersion, Created, Modified, ID -AutoSize
+
+            Write-Output "`nTotal Unused GPOs: $($unusedGPOs.Count)`n"
+        }
+    }
+
+    # Run the function
+    Get-UnusedGPOs
+
+
+    #_________________________________________________________________________________________________________________________________________
+
+    function Get-GpoConnections
+    {
+        Import-Module ActiveDirectory
+        Import-Module GroupPolicy
+
+        $results = @()
+
+        # Get all OUs
+        $OUs = Get-ADOrganizationalUnit -Filter *
+
+        foreach ($ou in $OUs)
+        {
+            $inheritance = Get-GPInheritance -Target $ou.DistinguishedName
+            foreach ($link in $inheritance.GpoLinks)
+            {
+                # Extract only the OU name (e.g., from "OU=Staff,OU=BEBWS,DC=domain,DC=local" get "Staff")
+                if ($ou.DistinguishedName -match '^OU=([^,]+)')
+                {
+                    $ouName = $matches[1]
+                }
+                else
+                {
+                    $ouName = $ou.DistinguishedName
+                }
+
+                $results += [PSCustomObject]@{
+                    GPO       = $link.DisplayName
+                    OU        = $ouName
+                    Enforced  = $link.Enforced
+                    LinkOrder = $link.Order
+                }
+            }
+        }
+
+        # Output only simplified fields
+        $results | Select-Object GPO, OU, Enforced, LinkOrder | Format-Table -AutoSize
+    }
+    get-GpoConnections
+    #_________________________________________________________________________________________________________________________________________
+    function Get-GPOComprehensiveReport
+    {
+        [CmdletBinding()]
+        param(
+            [Parameter(HelpMessage = "Show all GPOs (both linked and unlinked)")]
+            [switch]$ShowAll = $false,
+        
+            [Parameter(HelpMessage = "Show only unlinked GPOs")]
+            [switch]$ShowUnlinked = $false,
+        
+            [Parameter(HelpMessage = "Show only linked GPOs")]
+            [switch]$ShowLinked = $false,
+        
+            [Parameter(HelpMessage = "Export results to CSV")]
+            [switch]$ExportCSV,
+        
+            [Parameter(HelpMessage = "Path to export CSV file")]
+            [string]$CSVPath = ".\GPO_Report_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv",
+        
+            [Parameter(HelpMessage = "Search for GPOs containing this text in their name")]
+            [string]$NameFilter = "",
+        
+            [Parameter(HelpMessage = "Show GPOs modified after this date")]
+            [DateTime]$ModifiedAfter,
+        
+            [Parameter(HelpMessage = "Show GPOs modified before this date")]
+            [DateTime]$ModifiedBefore
+        )
+    
+        Write-Host "`n===== Group Policy Object (GPO) Report =====" -ForegroundColor Cyan
+        Write-Host "Domain: $((Get-WmiObject Win32_ComputerSystem).Domain)" -ForegroundColor Cyan
+        Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Cyan
+        Write-Host "Run by: $($env:USERNAME) on $($env:COMPUTERNAME)" -ForegroundColor Cyan
+        Write-Host "======================================`n" -ForegroundColor Cyan
+    
+        try
+        {
+            Import-Module GroupPolicy -ErrorAction Stop
+            Write-Verbose "GroupPolicy module loaded successfully"
+        }
+        catch
+        {
+            Write-Error "Failed to load GroupPolicy module: $_"
+            return
+        }
+    
+        $allGPOs = @()
+        $linkedGPOs = @()
+        $unlinkedGPOs = @()
+    
+        # If no filter switches are specified, show all GPOs
+        if (-not $ShowAll -and -not $ShowUnlinked -and -not $ShowLinked)
+        {
+            $ShowAll = $true
+        }
+    
+        try
+        {
+            # Get all GPOs and show progress
+            Write-Host "Retrieving Group Policy Objects..." -ForegroundColor Yellow
+            $gpos = Get-GPO -All
+        
+            if (-not $gpos)
+            {
+                Write-Warning "No Group Policy Objects found in the domain."
+                return
+            }
+        
+            $totalGPOs = $gpos.Count
+            Write-Verbose "Found $totalGPOs GPOs in total."
+            $processedCount = 0
+        
+            # Process each GPO
+            foreach ($gpo in $gpos)
+            {
+                $processedCount++
+                Write-Progress -Activity "Processing GPOs" -Status "Processing $processedCount of $totalGPOs" -PercentComplete (($processedCount / $totalGPOs) * 100)
+            
+                # Apply name filter if specified
+                if ($NameFilter -and $gpo.DisplayName -notlike "*$NameFilter*")
+                {
+                    continue
+                }
+            
+                # Apply date filters if specified
+                if ($ModifiedAfter -and $gpo.ModificationTime -lt $ModifiedAfter)
+                {
+                    continue
+                }
+                if ($ModifiedBefore -and $gpo.ModificationTime -gt $ModifiedBefore)
+                {
+                    continue
+                }
+            
+                # Use the GPO object's GenerateReport method to get XML report
+                [string]$xmlReport = $gpo.GenerateReport('XML')
+                [xml]$doc = $xmlReport
+            
+                # Process links
+                $links = @()
+                if ($doc.GPO.LinksTo.Link)
+                {
+                    foreach ($link in $doc.GPO.LinksTo.Link)
+                    {
+                        $links += [PSCustomObject]@{
+                            Target     = $link.SOMPath
+                            Enabled    = $link.Enabled
+                            NoOverride = $link.NoOverride
+                        }
+                    }
+                }
+                $linkCount = $links.Count
+            
+                # Create GPO object
+                $gpoObject = [PSCustomObject]@{
+                    Name            = $gpo.DisplayName
+                    IsLinked        = ($linkCount -gt 0)
+                    LinkCount       = $linkCount
+                    Status          = $gpo.GpoStatus
+                    Modified        = $gpo.ModificationTime
+                    Created         = $gpo.CreationTime
+                    UserVersion     = [int]$doc.GPO.UserVersion
+                    ComputerVersion = [int]$doc.GPO.ComputerVersion
+                    Description     = $gpo.Description
+                    ID              = $gpo.Id
+                    Links           = $links
+                }
+            
+                # Add to appropriate arrays
+                $allGPOs += $gpoObject
+            
+                if ($linkCount -gt 0)
+                {
+                    $linkedGPOs += $gpoObject
+                }
+                else
+                {
+                    $unlinkedGPOs += $gpoObject
+                }
+            }
+        
+            Write-Progress -Activity "Processing GPOs" -Completed
+        
+            # Display results based on switches
+            if ($ShowAll -or $ShowLinked)
+            {
+                Write-Host "`n--- Linked GPOs ($($linkedGPOs.Count)) ---" -ForegroundColor Green
+                if ($linkedGPOs.Count -gt 0)
+                {
+                    # Format linked GPOs table with ID at the end, sorted by Modified date
+                    $linkedGPOs | 
+                        Sort-Object Modified -Descending | 
+                        Format-Table Name, Status, UserVersion, ComputerVersion, LinkCount, Created, Modified, ID -AutoSize
+                
+                    # Show detailed link information
+                    Write-Host "`n--- GPO Links Detail ---" -ForegroundColor Green
+                    foreach ($gpo in ($linkedGPOs | Sort-Object Modified -Descending))
+                    {
+                        Write-Host "`nGPO: $($gpo.Name) (Modified: $($gpo.Modified))" -ForegroundColor Yellow
+                        $gpo.Links | Format-Table Target, Enabled, NoOverride -AutoSize
+                    }
+                }
+                else
+                {
+                    Write-Host "No linked GPOs found." -ForegroundColor Yellow
+                }
+            }
+        
+            if ($ShowAll -or $ShowUnlinked)
+            {
+                Write-Host "`n--- Unlinked GPOs ($($unlinkedGPOs.Count)) ---" -ForegroundColor Magenta
+                if ($unlinkedGPOs.Count -gt 0)
+                {
+                    # Format unlinked GPOs table with ID at the end, sorted by Modified date
+                    $unlinkedGPOs | 
+                        Sort-Object Modified -Descending | 
+                        Format-Table Name, Status, UserVersion, ComputerVersion, Created, Modified, ID -AutoSize
+                }
+                else
+                {
+                    Write-Host "✅ No unlinked GPOs found." -ForegroundColor Green
+                }
+            }
+        
+            # Export to CSV if requested
+            if ($ExportCSV)
+            {
+                Write-Verbose "Exporting GPO data to CSV: $CSVPath"
+            
+                # Create expanded CSV data with link information
+                $csvData = @()
+                foreach ($gpo in $allGPOs)
+                {
+                    if ($gpo.LinkCount -gt 0)
+                    {
+                        foreach ($link in $gpo.Links)
+                        {
+                            $csvData += [PSCustomObject]@{
+                                Name            = $gpo.Name
+                                Status          = $gpo.Status
+                                UserVersion     = $gpo.UserVersion
+                                ComputerVersion = $gpo.ComputerVersion
+                                Created         = $gpo.Created
+                                Modified        = $gpo.Modified
+                                Description     = $gpo.Description
+                                IsLinked        = $true
+                                LinkTarget      = $link.Target
+                                LinkEnabled     = $link.Enabled
+                                LinkNoOverride  = $link.NoOverride
+                                ID              = $gpo.ID
+                            }
+                        }
+                    }
+                    else
+                    {
+                        $csvData += [PSCustomObject]@{
+                            Name            = $gpo.Name
+                            Status          = $gpo.Status
+                            UserVersion     = $gpo.UserVersion
+                            ComputerVersion = $gpo.ComputerVersion
+                            Created         = $gpo.Created
+                            Modified        = $gpo.Modified
+                            Description     = $gpo.Description
+                            IsLinked        = $false
+                            LinkTarget      = $null
+                            LinkEnabled     = $null
+                            LinkNoOverride  = $null
+                            ID              = $gpo.ID
+                        }
+                    }
+                }
+            
+                $csvData | Export-Csv -Path $CSVPath -NoTypeInformation
+                Write-Host "`nGPO report exported to: $CSVPath" -ForegroundColor Cyan
+            }
+        
+            # Return summary information
+            Write-Host "`n=== Summary ===" -ForegroundColor Cyan
+            Write-Host "Total GPOs: $($allGPOs.Count)" -ForegroundColor White
+            Write-Host "Linked GPOs: $($linkedGPOs.Count)" -ForegroundColor Green
+            Write-Host "Unlinked GPOs: $($unlinkedGPOs.Count)" -ForegroundColor $(if ($unlinkedGPOs.Count -gt 0) { "Magenta" } else { "Green" })
+            Write-Host "==============================================" -ForegroundColor Cyan
+        
+            # Return the GPO objects for pipeline usage
+            return $allGPOs | Sort-Object Modified -Descending
+        }
+        catch
+        {
+            Write-Error "Error processing GPOs: $_"
+        }
+    }
+
+    # Example usage (uncomment what you need)
+    # Default usage - shows all GPOs and sorts by modified date
+    Get-GPOComprehensiveReport | Format-Table -AutoSize
+    #_________________________________________________________________________________________________________________________________________
+
+    function Get-FirewallPortRules
+    {
+        [CmdletBinding()]
+        param (
+            [Parameter(HelpMessage = "Include rules where Action = Block")]
+            [switch]$IncludeBlocked,
+        
+            [Parameter(HelpMessage = "Include rules that are not enabled")]
+            [switch]$IncludeDisabled,
+        
+            [Parameter(HelpMessage = "Filter by specific protocol (TCP, UDP, Any)")]
+            [ValidateSet("TCP", "UDP", "Any", IgnoreCase = $true)]
+            [string]$Protocol,
+        
+            [Parameter(HelpMessage = "Filter by specific port number")]
+            [string]$Port,
+        
+            [Parameter(HelpMessage = "Show additional rule details including rule description")]
+            [switch]$Detailed,
+        
+            [Parameter(HelpMessage = "Export results to CSV file")]
+            [string]$ExportCSV,
+        
+            [Parameter(HelpMessage = "Include default Windows rules (otherwise only shows custom rules)")]
+            [switch]$IncludeDefaultRules
+        )
+
+        # Display processing message
+        $displayProtocol = if ($Protocol) { $Protocol } else { 'Any' }
+        $displayPort = if ($Port) { $Port } else { 'Any' }
+
+        Write-Verbose "Retrieving firewall rules with filters - Blocked: $IncludeBlocked, Disabled: $IncludeDisabled, Protocol: $displayProtocol, Port: $displayPort, Default Rules: $IncludeDefaultRules"
+
+    
+        # Get all matching firewall rules
+        $rules = Get-NetFirewallRule -PolicyStore ActiveStore | Where-Object {
+            $_.Direction -eq 'Inbound' -and
+        ($IncludeBlocked -or $_.Action -eq 'Allow') -and
+        ($IncludeDisabled -or $_.Enabled -eq $true) -and
+            # Filter out default Windows rules unless specifically requested
+        ($IncludeDefaultRules -or -not ($_.Owner -like "*Microsoft*" -or 
+                $_.DisplayName -like "*Windows*" -or
+                $_.DisplayGroup -like "*Windows*" -or
+                $_.DisplayGroup -like "*Microsoft*" -or
+                $_.Group -like "*Windows*" -or
+                $_.Group -like "*Microsoft*" -or
+                $_.Group -like "@*" -or
+                $_.DisplayName -like "@*"))
+        }
+    
+        Write-Verbose "Found $($rules.Count) matching base firewall rules"
+    
+        $results = [System.Collections.ArrayList]::new()
+        $processedCount = 0
+    
+        foreach ($rule in $rules)
+        {
+            # Get associated port filters
+            $portFilters = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue
+        
+            # Skip rules without port filters unless we're viewing detailed info
+            if (-not $portFilters -and -not $Detailed) { continue }
+        
+            # Get associated address filters for additional info
+            $addressFilter = Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue
+        
+            # Get application filters for executable path
+            $appFilter = Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue
+        
+            # Get security filters for additional security info
+            $securityFilter = Get-NetFirewallSecurityFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue
+        
+            $processedCount++
+            Write-Progress -Activity "Processing Firewall Rules" -Status "Rule $processedCount of $($rules.Count)" -PercentComplete (($processedCount / $rules.Count) * 100)
+        
+            # If there are port filters, process each one
+            if ($portFilters)
+            {
+                foreach ($filter in $portFilters)
+                {
+                    # Skip if protocol filter is specified and doesn't match
+                    if ($Protocol -and $filter.Protocol -ne $Protocol) { continue }
+                
+                    # Skip if port filter is specified and doesn't match
+                    if ($Port -and 
+                   (-not $filter.LocalPort -or 
+                    ($filter.LocalPort -ne $Port -and 
+                        $filter.LocalPort -ne "Any" -and 
+                        $filter.LocalPort -notlike "*,$Port,*" -and 
+                        $filter.LocalPort -notlike "$Port,*" -and 
+                        $filter.LocalPort -notlike "*,$Port"))) { continue }
+                
+                    # Create the output object with standard properties
+                    $resultObj = [PSCustomObject]@{
+                        RuleID      = $rule.Name
+                        Name        = $rule.DisplayName
+                        Enabled     = if ($rule.Enabled -eq $true) { "Yes" } else { "No" }
+                        Direction   = $rule.Direction
+                        Profile     = $rule.Profile
+                        Action      = $rule.Action
+                        Protocol    = if ($filter.Protocol -eq "Any") { "Any" } else { $filter.Protocol }
+                        LocalPort   = if ($filter.LocalPort -eq "Any") { "Any" } else { $filter.LocalPort }
+                        RemotePort  = if ($filter.RemotePort -eq "Any") { "Any" } else { $filter.RemotePort }
+                        Program     = if ($appFilter.Program -eq "*") { "Any" } else { Split-Path $appFilter.Program -Leaf }
+                        ProgramPath = if ($appFilter.Program -eq "*") { "Any" } else { $appFilter.Program }
+                    }
+                
+                    # Add detailed properties if requested
+                    if ($Detailed)
+                    {
+                        Add-Member -InputObject $resultObj -NotePropertyName "Description" -NotePropertyValue $rule.Description
+                        Add-Member -InputObject $resultObj -NotePropertyName "Group" -NotePropertyValue $rule.Group
+                        Add-Member -InputObject $resultObj -NotePropertyName "LocalAddress" -NotePropertyValue ($addressFilter.LocalAddress -join ", ")
+                        Add-Member -InputObject $resultObj -NotePropertyName "RemoteAddress" -NotePropertyValue ($addressFilter.RemoteAddress -join ", ")
+                        Add-Member -InputObject $resultObj -NotePropertyName "Authentication" -NotePropertyValue $securityFilter.Authentication
+                        Add-Member -InputObject $resultObj -NotePropertyName "Encryption" -NotePropertyValue $securityFilter.Encryption
+                    }
+                
+                    [void]$results.Add($resultObj)
+                }
+            }
+            # If no port filters but detailed view requested, still include the rule
+            elseif ($Detailed)
+            {
+                $resultObj = [PSCustomObject]@{
+                    RuleID         = $rule.Name
+                    Name           = $rule.DisplayName
+                    Enabled        = if ($rule.Enabled -eq $true) { "Yes" } else { "No" }
+                    Direction      = $rule.Direction
+                    Profile        = $rule.Profile
+                    Action         = $rule.Action
+                    Protocol       = "N/A"
+                    LocalPort      = "N/A"
+                    RemotePort     = "N/A"
+                    Program        = if ($appFilter.Program -eq "*") { "Any" } else { Split-Path $appFilter.Program -Leaf }
+                    ProgramPath    = if ($appFilter.Program -eq "*") { "Any" } else { $appFilter.Program }
+                    Description    = $rule.Description
+                    Group          = $rule.Group
+                    LocalAddress   = ($addressFilter.LocalAddress -join ", ")
+                    RemoteAddress  = ($addressFilter.RemoteAddress -join ", ")
+                    Authentication = $securityFilter.Authentication
+                    Encryption     = $securityFilter.Encryption
+                }
+            
+                [void]$results.Add($resultObj)
+            }
+        }
+    
+        Write-Progress -Activity "Processing Firewall Rules" -Completed
+    
+        # Export to CSV if requested
+        if ($ExportCSV)
+        {
+            try
+            {
+                $results | Export-Csv -Path $ExportCSV -NoTypeInformation -Encoding UTF8
+                Write-Host "Results exported to $ExportCSV" -ForegroundColor Green
+            }
+            catch
+            {
+                Write-Warning "Failed to export results to CSV: $_"
+            }
+        }
+    
+        # Output a summary before returning results
+        Write-Host "`nFirewall Rules Summary:" -ForegroundColor Cyan
+        Write-Host "------------------------" -ForegroundColor Cyan
+        Write-Host "Total rules processed: $($rules.Count)" -ForegroundColor Cyan
+        Write-Host "Rules with port filters: $($results.Count)" -ForegroundColor Cyan
+        Write-Host "Enabled rules: $(($results | Where-Object { $_.Enabled -eq 'Yes' }).Count)" -ForegroundColor Cyan
+        Write-Host "Blocked rules: $(($results | Where-Object { $_.Action -eq 'Block' }).Count)" -ForegroundColor Cyan
+        if (-not $IncludeDefaultRules)
+        {
+            Write-Host "Rule type: Custom rules only (use -IncludeDefaultRules to see all)" -ForegroundColor Cyan
+        }
+        else
+        {
+            Write-Host "Rule type: All rules (including Windows defaults)" -ForegroundColor Cyan
+        }
+    
+        if ($Protocol)
+        {
+            Write-Host "$Protocol protocol rules: $(($results | Where-Object { $_.Protocol -eq $Protocol }).Count)" -ForegroundColor Cyan
+        }
+    
+        # Always sort results by Name before returning
+        return $results | Sort-Object -Property Name
+    }
+
+    # Example usage:
+    # Get all custom enabled "Allow" rules
+    Get-FirewallPortRules | Format-Table -AutoSize -Wrap
+
+    # Get all custom rules including blocked and disabled
+    # Get-FirewallPortRules -IncludeBlocked -IncludeDisabled | Format-Table -AutoSize -Wrap
+
+    # Get all rules including default Windows rules
+    # Get-FirewallPortRules -IncludeDefaultRules | Format-Table -AutoSize -Wrap
+
+    # Filter by protocol and export to CSV
+    # Get-FirewallPortRules -Protocol TCP -ExportCSV "C:\temp\firewall_tcp_rules.csv" | Format-Table -AutoSize
+
+    # Get detailed information
+    # Get-FirewallPortRules -Detailed -IncludeBlocked -IncludeDisabled | Format-Table -AutoSize -Wrap
+
+    # Filter by specific port
+    # Get-FirewallPortRules -Port 3389 | Format-Table -AutoSize
+    #Get-FirewallPortRules -IncludeDefaultRules | FT -AutoSize
+
+    #_____________________________________________________________________________________________________________________________________________________
+    Get-ScheduledTask | Where-Object {
+    ($_.TaskName -notmatch 'Microsoft') -and
+    ($_.TaskPath -notmatch 'Microsoft') -and
+    ($_.TaskName -notmatch 'OneDrive')
+    } | ForEach-Object {
+        $definition = $_.Definition
+        $info = Get-ScheduledTaskInfo -TaskName $_.TaskName -TaskPath $_.TaskPath
+
+        if ($definition.Author -notmatch 'Microsoft')
+        {
+            [PSCustomObject]@{
+                TaskName    = $_.TaskName
+                State       = $_.State
+                Author      = $definition.Author
+                TaskPath    = $_.TaskPath
+                LastRunTime = $info.LastRunTime
+                NextRunTime = $info.NextRunTime
+                Actions     = ($definition.Actions | ForEach-Object { $_.Execute })
+                Description = $definition.Description
+            }
+        }
+    } | Format-Table -AutoSize
+    #___________________________________________________________________________________________________________________________________________
+
+    #=================================================================== New Section End ===============================================================
     #===================================================== Data Collection and Output: ========================================================
+    
     #region Data Collection and Output
     # COLLECTION AND OUTPUT SECTION
     Write-SectionHeader "SYSTEM INFORMATION"
