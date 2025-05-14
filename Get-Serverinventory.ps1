@@ -773,7 +773,7 @@ function Get-ServerInventory
     #endregion Helper Functions 
 
     #=================================================================== New Section ===================================================================
-    function Get-inactiveUsers90Daysplus
+    function Get-InactiveUsers90Daysplus
     {
         Import-Module ActiveDirectory
 
@@ -791,11 +791,10 @@ function Get-ServerInventory
         Write-Output "Total Number of Inactive Computers: $($inactiveUsers.Count)"
         $inactiveUsers | Sort-Object -Property LastLogonDate
     }
-    Get-inactiveUsers90Daysplus
-
+    
     #_________________________________________________________________________________________________________________________________________
 
-    function Get-inactiveComputers90Daysplus
+    function Get-InactiveComputers90Daysplus
     {
         # Set threshold to 90 days ago
         $daysInactive = 90
@@ -833,8 +832,7 @@ function Get-ServerInventory
         Write-Output "Total Number of Inactive Computers: $($inactiveComputers.Count)"
         $inactiveComputers | Sort-Object -Property LastLogonDate
     }
-    Get-inactiveComputers90Daysplus
-
+    
     #_________________________________________________________________________________________________________________________________________
     function Get-AdAccountWithNoLogin
     {
@@ -854,8 +852,7 @@ function Get-ServerInventory
 
 
     }
-    get-AdAccountWithNoLogin
-
+    
     #_________________________________________________________________________________________________________________________________________
 
     Function Get-ExpiredUseraccounts
@@ -880,7 +877,6 @@ function Get-ServerInventory
         Write-Output "`nNumber of expired user accounts: $($expiredUsers.Count)`n"
 
     }
-    Get-ExpiredUseraccounts
     #_________________________________________________________________________________________________________________________________________
     Import-Module ActiveDirectory
 
@@ -903,8 +899,6 @@ function Get-ServerInventory
         }
     }
 
-    # Run the function
-    Get-NoPasswordRequiredUsers
     #_________________________________________________________________________________________________________________________________________
 
     # Function 2: Users with password never expires + last logon info
@@ -954,7 +948,7 @@ function Get-ServerInventory
         $oldPasswordAdmins | sort-object -property PasswordLastSet | Format-Table -AutoSize
         Write-Output "`nCount: $($oldPasswordAdmins.Count)`n"
     }
-    Get-OldAdminPasswords
+    
 
     #_________________________________________________________________________________________________________________________________________
 
@@ -1009,9 +1003,6 @@ function Get-ServerInventory
         }
     }
 
-    # Run the function
-    Get-EmptyADGroups
-
     #_________________________________________________________________________________________________________________________________________
     function Get-ADGroupsWithMemberCount
     {
@@ -1062,8 +1053,6 @@ function Get-ServerInventory
         }
     }
 
-    # Run the function
-    Get-ADGroupsWithMemberCount
 
     #_________________________________________________________________________________________________________________________________________
     function Get-UnusedGPOs
@@ -1117,10 +1106,6 @@ function Get-ServerInventory
         }
     }
 
-    # Run the function
-    Get-UnusedGPOs
-
-
     #_________________________________________________________________________________________________________________________________________
 
     function Get-GpoConnections
@@ -1160,7 +1145,7 @@ function Get-ServerInventory
         # Output only simplified fields
         $results | Select-Object GPO, OU, Enforced, LinkOrder | Format-Table -AutoSize
     }
-    get-GpoConnections
+   
     #_________________________________________________________________________________________________________________________________________
     function Get-GPOComprehensiveReport
     {
@@ -1416,7 +1401,7 @@ function Get-ServerInventory
 
     # Example usage (uncomment what you need)
     # Default usage - shows all GPOs and sorts by modified date
-    Get-GPOComprehensiveReport | Format-Table -AutoSize
+    
     #_________________________________________________________________________________________________________________________________________
 
     function Get-FirewallPortRules
@@ -1629,28 +1614,48 @@ function Get-ServerInventory
     #Get-FirewallPortRules -IncludeDefaultRules | FT -AutoSize
 
     #_____________________________________________________________________________________________________________________________________________________
-    Get-ScheduledTask | Where-Object {
-    ($_.TaskName -notmatch 'Microsoft') -and
-    ($_.TaskPath -notmatch 'Microsoft') -and
-    ($_.TaskName -notmatch 'OneDrive')
-    } | ForEach-Object {
-        $definition = $_.Definition
-        $info = Get-ScheduledTaskInfo -TaskName $_.TaskName -TaskPath $_.TaskPath
+    function Get-NonMicrosoftScheduledTasks
+    {
+        <#
+    .SYNOPSIS
+        Retrieves scheduled tasks that are not created by Microsoft or related to OneDrive.
 
-        if ($definition.Author -notmatch 'Microsoft')
-        {
-            [PSCustomObject]@{
-                TaskName    = $_.TaskName
-                State       = $_.State
-                Author      = $definition.Author
-                TaskPath    = $_.TaskPath
-                LastRunTime = $info.LastRunTime
-                NextRunTime = $info.NextRunTime
-                Actions     = ($definition.Actions | ForEach-Object { $_.Execute })
-                Description = $definition.Description
+    .DESCRIPTION
+        Filters out scheduled tasks whose names or paths contain 'Microsoft' or 'OneDrive', 
+        and excludes those authored by Microsoft. Returns details such as task name, state, 
+        author, path, last run time, next run time, actions, and description.
+
+    .OUTPUTS
+        [PSCustomObject]
+
+    .EXAMPLE
+        Get-NonMicrosoftScheduledTasks
+    #>
+
+        Get-ScheduledTask | Where-Object {
+        ($_.TaskName -notmatch 'Microsoft') -and
+        ($_.TaskPath -notmatch 'Microsoft') -and
+        ($_.TaskName -notmatch 'OneDrive')
+        } | ForEach-Object {
+            $definition = $_.Definition
+            $info = Get-ScheduledTaskInfo -TaskName $_.TaskName -TaskPath $_.TaskPath
+
+            if ($definition.Author -notmatch 'Microsoft')
+            {
+                [PSCustomObject]@{
+                    TaskName    = $_.TaskName
+                    State       = $_.State
+                    Author      = $definition.Author
+                    TaskPath    = $_.TaskPath
+                    LastRunTime = $info.LastRunTime
+                    NextRunTime = $info.NextRunTime
+                    Actions     = ($definition.Actions | ForEach-Object { $_.Execute }) -join ', '
+                    Description = $definition.Description
+                }
             }
         }
-    } | Format-Table -AutoSize
+    }
+
     #___________________________________________________________________________________________________________________________________________
 
     #=================================================================== New Section End ===============================================================
@@ -1860,6 +1865,52 @@ function Get-ServerInventory
         Write-Host "`nInventory data exported to: $OutputPath" -ForegroundColor Green
     }
     #endregion Data Collection and Output
+
+    Write-SectionHeader " Active Directory Hygiene" 
+
+    Write-Host "list of users who have been inactive for 90 days or more" -ForegroundColor Green
+    Get-InactiveUsers90Daysplus
+
+    Write-Host "List of inactive computers for 90 days or more" -ForegroundColor Green
+    Get-InactiveComputers90Daysplus
+
+    Write-Host "list of users who have never logged on using their accounts" -ForegroundColor Green
+    get-AdAccountWithNoLogin
+
+    Write-host "list of users who have no Password set" -ForegroundColor Green
+    Get-NoPasswordRequiredUsers
+
+    Write-Host "list of Expired user accounts are as follows" -ForegroundColor Green
+    Get-ExpiredUseraccounts
+
+    Write-host "list of users whos password is set to never expire" -ForegroundColor Green
+    Get-PasswordNeverExpiresUsers
+
+    Write-Host "list of Admin Accounts whose password are older then 1 year" -ForegroundColor Green
+    Get-OldAdminPasswords
+
+    Write-Host "List of empty groups in Active Directory" -ForegroundColor Green
+    Get-EmptyADGroups
+
+    Write-Host "list of AD Groups and their member count" -ForegroundColor Green
+    Get-ADGroupsWithMemberCount
+
+    Write-Host "list of Group policies that er not being used" -ForegroundColor Green
+    Get-UnusedGPOs
+
+    Write-Host "list of GPO's and their respective connections in the domain" -ForegroundColor Green
+    get-GpoConnections
+
+    Write-Host "A comprehensive report on GPO's in the domain" -ForegroundColor Green
+    Get-GPOComprehensiveReport | Format-Table -AutoSize
+
+    Write-host "list of Custom created Firewall Rules "
+    Get-FirewallPortRules | Format-Table -AutoSize -Wrap
+
+    Write-Host "list of all custom created Schduled tasks" -ForegroundColor Green
+    Get-NonMicrosoftScheduledTasks | Format-Table -AutoSize
+
+
 }
 #========================================================== Script Execution ==================================================================
 #region Script Execution
