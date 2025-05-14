@@ -1147,261 +1147,41 @@ function Get-ServerInventory
     }
    
     #_________________________________________________________________________________________________________________________________________
-    function Get-GPOComprehensiveReport
-    {
-        [CmdletBinding()]
-        param(
-            [Parameter(HelpMessage = "Show all GPOs (both linked and unlinked)")]
-            [switch]$ShowAll = $false,
-        
-            [Parameter(HelpMessage = "Show only unlinked GPOs")]
-            [switch]$ShowUnlinked = $false,
-        
-            [Parameter(HelpMessage = "Show only linked GPOs")]
-            [switch]$ShowLinked = $false,
-        
-            [Parameter(HelpMessage = "Export results to CSV")]
-            [switch]$ExportCSV,
-        
-            [Parameter(HelpMessage = "Path to export CSV file")]
-            [string]$CSVPath = ".\GPO_Report_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv",
-        
-            [Parameter(HelpMessage = "Search for GPOs containing this text in their name")]
-            [string]$NameFilter = "",
-        
-            [Parameter(HelpMessage = "Show GPOs modified after this date")]
-            [DateTime]$ModifiedAfter,
-        
-            [Parameter(HelpMessage = "Show GPOs modified before this date")]
-            [DateTime]$ModifiedBefore
-        )
-    
-        Write-Host "`n===== Group Policy Object (GPO) Report =====" -ForegroundColor Cyan
-        Write-Host "Domain: $((Get-WmiObject Win32_ComputerSystem).Domain)" -ForegroundColor Cyan
-        Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Cyan
-        Write-Host "Run by: $($env:USERNAME) on $($env:COMPUTERNAME)" -ForegroundColor Cyan
-        Write-Host "======================================`n" -ForegroundColor Cyan
-    
-        try
-        {
-            Import-Module GroupPolicy -ErrorAction Stop
-            Write-Verbose "GroupPolicy module loaded successfully"
+   function Get-GPOComprehensiveReport {
+    param(
+        [Parameter(Mandatory = $false)]
+        [switch]$ShowAll
+    )
+
+    $gpos = Get-GPO -All
+
+    foreach ($gpo in $gpos) {
+        $report = Get-GPOReport -Guid $gpo.Id -ReportType Xml
+        $xml = [xml]$report
+
+        $links = @()
+
+        foreach ($scope in $xml.GPO.LinksTo) {
+            $linkObject = [pscustomobject]@{
+                GPOName       = $gpo.DisplayName
+                GPOID         = $gpo.Id
+                LinkScope     = $scope.SOMPath
+                LinkEnabled   = $scope.Enabled
+                Enforced      = $scope.NoOverride
+                GPOStatus     = $gpo.GpoStatus
+                CreatedTime   = $gpo.CreationTime
+                ModifiedTime  = $gpo.ModificationTime
+            }
+
+            $links += $linkObject
         }
-        catch
-        {
-            Write-Error "Failed to load GroupPolicy module: $_"
-            return
-        }
-    
-        $allGPOs = @()
-        $linkedGPOs = @()
-        $unlinkedGPOs = @()
-    
-        # If no filter switches are specified, show all GPOs
-        if (-not $ShowAll -and -not $ShowUnlinked -and -not $ShowLinked)
-        {
-            $ShowAll = $true
-        }
-    
-        try
-        {
-            # Get all GPOs and show progress
-            Write-Host "Retrieving Group Policy Objects..." -ForegroundColor Yellow
-            $gpos = Get-GPO -All
-        
-            if (-not $gpos)
-            {
-                Write-Warning "No Group Policy Objects found in the domain."
-                return
-            }
-        
-            $totalGPOs = $gpos.Count
-            Write-Verbose "Found $totalGPOs GPOs in total."
-            $processedCount = 0
-        
-            # Process each GPO
-            foreach ($gpo in $gpos)
-            {
-                $processedCount++
-                Write-Progress -Activity "Processing GPOs" -Status "Processing $processedCount of $totalGPOs" -PercentComplete (($processedCount / $totalGPOs) * 100)
-            
-                # Apply name filter if specified
-                if ($NameFilter -and $gpo.DisplayName -notlike "*$NameFilter*")
-                {
-                    continue
-                }
-            
-                # Apply date filters if specified
-                if ($ModifiedAfter -and $gpo.ModificationTime -lt $ModifiedAfter)
-                {
-                    continue
-                }
-                if ($ModifiedBefore -and $gpo.ModificationTime -gt $ModifiedBefore)
-                {
-                    continue
-                }
-            
-                # Use the GPO object's GenerateReport method to get XML report
-                [string]$xmlReport = $gpo.GenerateReport('XML')
-                [xml]$doc = $xmlReport
-            
-                # Process links
-                $links = @()
-                if ($doc.GPO.LinksTo.Link)
-                {
-                    foreach ($link in $doc.GPO.LinksTo.Link)
-                    {
-                        $links += [PSCustomObject]@{
-                            Target     = $link.SOMPath
-                            Enabled    = $link.Enabled
-                            NoOverride = $link.NoOverride
-                        }
-                    }
-                }
-                $linkCount = $links.Count
-            
-                # Create GPO object
-                $gpoObject = [PSCustomObject]@{
-                    Name            = $gpo.DisplayName
-                    IsLinked        = ($linkCount -gt 0)
-                    LinkCount       = $linkCount
-                    Status          = $gpo.GpoStatus
-                    Modified        = $gpo.ModificationTime
-                    Created         = $gpo.CreationTime
-                    UserVersion     = [int]$doc.GPO.UserVersion
-                    ComputerVersion = [int]$doc.GPO.ComputerVersion
-                    Description     = $gpo.Description
-                    ID              = $gpo.Id
-                    Links           = $links
-                }
-            
-                # Add to appropriate arrays
-                $allGPOs += $gpoObject
-            
-                if ($linkCount -gt 0)
-                {
-                    $linkedGPOs += $gpoObject
-                }
-                else
-                {
-                    $unlinkedGPOs += $gpoObject
-                }
-            }
-        
-            Write-Progress -Activity "Processing GPOs" -Completed
-        
-            # Display results based on switches
-            if ($ShowAll -or $ShowLinked)
-            {
-                Write-Host "`n--- Linked GPOs ($($linkedGPOs.Count)) ---" -ForegroundColor Green
-                if ($linkedGPOs.Count -gt 0)
-                {
-                    # Format linked GPOs table with ID at the end, sorted by Modified date
-                    $linkedGPOs | 
-                        Sort-Object Modified -Descending | 
-                        Format-Table Name, Status, UserVersion, ComputerVersion, LinkCount, Created, Modified, ID -AutoSize
-                
-                    # Show detailed link information
-                    Write-Host "`n--- GPO Links Detail ---" -ForegroundColor Green
-                    foreach ($gpo in ($linkedGPOs | Sort-Object Modified -Descending))
-                    {
-                        Write-Host "`nGPO: $($gpo.Name) (Modified: $($gpo.Modified))" -ForegroundColor Yellow
-                        $gpo.Links | Format-Table Target, Enabled, NoOverride -AutoSize
-                    }
-                }
-                else
-                {
-                    Write-Host "No linked GPOs found." -ForegroundColor Yellow
-                }
-            }
-        
-            if ($ShowAll -or $ShowUnlinked)
-            {
-                Write-Host "`n--- Unlinked GPOs ($($unlinkedGPOs.Count)) ---" -ForegroundColor Magenta
-                if ($unlinkedGPOs.Count -gt 0)
-                {
-                    # Format unlinked GPOs table with ID at the end, sorted by Modified date
-                    $unlinkedGPOs | 
-                        Sort-Object Modified -Descending | 
-                        Format-Table Name, Status, UserVersion, ComputerVersion, Created, Modified, ID -AutoSize
-                }
-                else
-                {
-                    Write-Host "✅ No unlinked GPOs found." -ForegroundColor Green
-                }
-            }
-        
-            # Export to CSV if requested
-            if ($ExportCSV)
-            {
-                Write-Verbose "Exporting GPO data to CSV: $CSVPath"
-            
-                # Create expanded CSV data with link information
-                $csvData = @()
-                foreach ($gpo in $allGPOs)
-                {
-                    if ($gpo.LinkCount -gt 0)
-                    {
-                        foreach ($link in $gpo.Links)
-                        {
-                            $csvData += [PSCustomObject]@{
-                                Name            = $gpo.Name
-                                Status          = $gpo.Status
-                                UserVersion     = $gpo.UserVersion
-                                ComputerVersion = $gpo.ComputerVersion
-                                Created         = $gpo.Created
-                                Modified        = $gpo.Modified
-                                Description     = $gpo.Description
-                                IsLinked        = $true
-                                LinkTarget      = $link.Target
-                                LinkEnabled     = $link.Enabled
-                                LinkNoOverride  = $link.NoOverride
-                                ID              = $gpo.ID
-                            }
-                        }
-                    }
-                    else
-                    {
-                        $csvData += [PSCustomObject]@{
-                            Name            = $gpo.Name
-                            Status          = $gpo.Status
-                            UserVersion     = $gpo.UserVersion
-                            ComputerVersion = $gpo.ComputerVersion
-                            Created         = $gpo.Created
-                            Modified        = $gpo.Modified
-                            Description     = $gpo.Description
-                            IsLinked        = $false
-                            LinkTarget      = $null
-                            LinkEnabled     = $null
-                            LinkNoOverride  = $null
-                            ID              = $gpo.ID
-                        }
-                    }
-                }
-            
-                $csvData | Export-Csv -Path $CSVPath -NoTypeInformation
-                Write-Host "`nGPO report exported to: $CSVPath" -ForegroundColor Cyan
-            }
-        
-            # Return summary information
-            Write-Host "`n=== Summary ===" -ForegroundColor Cyan
-            Write-Host "Total GPOs: $($allGPOs.Count)" -ForegroundColor White
-            Write-Host "Linked GPOs: $($linkedGPOs.Count)" -ForegroundColor Green
-            Write-Host "Unlinked GPOs: $($unlinkedGPOs.Count)" -ForegroundColor $(if ($unlinkedGPOs.Count -gt 0) { "Magenta" } else { "Green" })
-            Write-Host "==============================================" -ForegroundColor Cyan
-        
-            # Return the GPO objects for pipeline usage
-            return $allGPOs | Sort-Object Modified -Descending
-        }
-        catch
-        {
-            Write-Error "Error processing GPOs: $_"
+
+        if ($ShowAll -or $links.Count -gt 0) {
+            $links
         }
     }
+}
 
-    # Example usage (uncomment what you need)
-    # Default usage - shows all GPOs and sorts by modified date
-    
     #_________________________________________________________________________________________________________________________________________
 
     function Get-FirewallPortRules
@@ -1673,11 +1453,6 @@ function Get-ServerInventory
     $diskInfo | Format-Table -AutoSize
     if ($ExportCSV) { $diskInfo | Export-Csv -Path "$OutputPath\DiskInfo.csv" -NoTypeInformation }
 
-    Write-SectionHeader " GROUP POLICY INFORMATION"
-
-    $GPOName = Get-GPOInformation
-    $GPOName | Format-Table -AutoSize
-    if ($ExportCSV) { $GPOName | Export-Csv -Path "$OutputPath\GPOInfo.csv" -NoTypeInformation }
 
     Write-SectionHeader "Azure AD JOIN STATUS"
     $azureADJoinStatus = Get-AzureADJoinStatus -ComputerName $ComputerName
@@ -1690,6 +1465,8 @@ function Get-ServerInventory
 
     Write-SectionHeader "INSTALLED WINDOWS FEATURES AND ROLES"
     $featuresInfo = Get-WindowsFeaturesInfo -ComputerName $ComputerName
+    
+    Write-SectionHeader "INSTALLED WINDOWS FEATURES and ROLES"
     Write-Host "INSTALLED ROLES:" -ForegroundColor Yellow
     $featuresInfo.Roles | Format-Table -AutoSize
     Write-Host "INSTALLED ROLE SERVICES:" -ForegroundColor Yellow
@@ -1864,54 +1641,73 @@ function Get-ServerInventory
     {
         Write-Host "`nInventory data exported to: $OutputPath" -ForegroundColor Green
     }
-    #endregion Data Collection and Output
 
-    Write-SectionHeader " Active Directory Hygiene" 
-
-    Write-Host "list of users who have been inactive for 90 days or more" -ForegroundColor Green
-    Get-InactiveUsers90Daysplus
-
-    Write-Host "List of inactive computers for 90 days or more" -ForegroundColor Green
-    Get-InactiveComputers90Daysplus
-
-    Write-Host "list of users who have never logged on using their accounts" -ForegroundColor Green
-    get-AdAccountWithNoLogin
-
-    Write-host "list of users who have no Password set" -ForegroundColor Green
-    Get-NoPasswordRequiredUsers
-
-    Write-Host "list of Expired user accounts are as follows" -ForegroundColor Green
-    Get-ExpiredUseraccounts
-
-    Write-host "list of users whos password is set to never expire" -ForegroundColor Green
-    Get-PasswordNeverExpiresUsers
-
-    Write-Host "list of Admin Accounts whose password are older then 1 year" -ForegroundColor Green
-    Get-OldAdminPasswords
-
-    Write-Host "List of empty groups in Active Directory" -ForegroundColor Green
-    Get-EmptyADGroups
-
-    Write-Host "list of AD Groups and their member count" -ForegroundColor Green
-    Get-ADGroupsWithMemberCount
-
-    Write-Host "list of Group policies that er not being used" -ForegroundColor Green
-    Get-UnusedGPOs
-
-    Write-Host "list of GPO's and their respective connections in the domain" -ForegroundColor Green
-    get-GpoConnections
-
-    Write-Host "A comprehensive report on GPO's in the domain" -ForegroundColor Green
-    Get-GPOComprehensiveReport | Format-Table -AutoSize
-
+    
+    Write-SectionHeader "CUSTOM FIREWALL RULES"
     Write-host "list of Custom created Firewall Rules "
     Get-FirewallPortRules | Format-Table -AutoSize -Wrap
 
-    Write-Host "list of all custom created Schduled tasks" -ForegroundColor Green
+    Write-SectionHeader "CUSTOM SCHEDULED TASKS"
+    Write-Host "list of all custom created Scheduled tasks" -ForegroundColor Green
     Get-NonMicrosoftScheduledTasks | Format-Table -AutoSize
 
 
+    # Check if the server is a Domain Controller
+    $roleInstalled = Get-WindowsFeature -Name AD-Domain-Services
+
+    if ($roleInstalled.Installed)
+    {
+        Write-SectionHeader " Active Directory Hygiene" 
+
+        Write-Host "list of users who have been inactive for 90 days or more" -ForegroundColor Green
+        Get-InactiveUsers90Daysplus
+
+        Write-Host "List of inactive computers for 90 days or more" -ForegroundColor Green
+        Get-InactiveComputers90Daysplus
+
+        Write-Host "list of users who have never logged on using their accounts" -ForegroundColor Green
+        get-AdAccountWithNoLogin
+
+        Write-host "list of users who have no Password set" -ForegroundColor Green
+        Get-NoPasswordRequiredUsers
+
+        Write-Host "list of Expired user accounts are as follows" -ForegroundColor Green
+        Get-ExpiredUseraccounts
+
+        Write-host "list of users whos password is set to never expire" -ForegroundColor Green
+        Get-PasswordNeverExpiresUsers
+
+        Write-Host " list of Admin Accounts whose password are older then 1 year" -ForegroundColor Green
+        Get-OldAdminPasswords
+
+        Write-Host " List of empty groups in Active Directory" -ForegroundColor Green
+        Get-EmptyADGroups
+
+        Write-Host "list of AD Groups and their member count" -ForegroundColor Green
+        Get-ADGroupsWithMemberCount
+
+        Write-SectionHeader " GROUP POLICY INFORMATION"
+        $GPOName = Get-GPOInformation
+        $GPOName | Format-Table -AutoSize
+        if ($ExportCSV) { $GPOName | Export-Csv -Path "$OutputPath\GPOInfo.csv" -NoTypeInformation }
+
+        Write-Host " list of Group policies that er not being used" -ForegroundColor Green
+        Get-UnusedGPOs
+
+        Write-Host " list of GPO's and their respective connections in the domain" -ForegroundColor Green
+        get-GpoConnections
+
+        Write-Host " A comprehensive report on GPO's in the domain" -ForegroundColor Green
+        Get-GPOComprehensiveReport | Format-Table -Property GPOName,LinkEnabled,Enforced,GPOStatus,CreatedTime,ModifiedTime,LinkScope -AutoSize
+
+        
+    }
+    else
+    {
+        Write-Warning "This is Not a Domain Controller."
+    }
 }
+#endregion Data Collection and Output
 #========================================================== Script Execution ==================================================================
 #region Script Execution
 Clear-Host
