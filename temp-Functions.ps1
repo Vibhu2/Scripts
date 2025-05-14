@@ -1,157 +1,248 @@
-function Get-FirewallPortRules {
+function Get-GPOComprehensiveReport
+{
+    <#
+    .SYNOPSIS
+        Generates a report of Group Policy Objects (GPOs) in the current domain.
+
+    .DESCRIPTION
+        Retrieves and displays details about GPOs, including linked and unlinked policies, with options to filter by name, modification dates, or link status. Supports CSV export.
+
+    .PARAMETER ShowAll
+        Display both linked and unlinked GPOs (default if no filter is specified).
+
+    .PARAMETER ShowUnlinked
+        Display only unlinked GPOs.
+
+    .PARAMETER ShowLinked
+        Display only linked GPOs.
+
+    .PARAMETER ExportCSV
+        Export the report to a CSV file.
+
+    .PARAMETER CSVPath
+        Path for the CSV file. Defaults to ".\GPO_Report_YYYYMMDD_HHMMSS.csv".
+
+    .PARAMETER NameFilter
+        Filter GPOs by name (supports wildcards).
+
+    .PARAMETER ModifiedAfter
+        Show GPOs modified after the specified date.
+
+    .PARAMETER ModifiedBefore
+        Show GPOs modified before the specified date.
+
+    .EXAMPLE
+        Get-GPOComprehensiveReport -ShowLinked
+        Displays only linked GPOs.
+
+    .EXAMPLE
+        Get-GPOComprehensiveReport -NameFilter "Workstation*" -ExportCSV
+        Exports GPOs with names matching "Workstation*" to a CSV file.
+
+    .NOTES
+        Requires the GroupPolicy module and appropriate permissions.
+    #>
     [CmdletBinding()]
-    param (
-        [Parameter(HelpMessage="Include rules where Action = Block")]
-        [switch]$IncludeBlocked,
-        
-        [Parameter(HelpMessage="Include rules that are not enabled")]
-        [switch]$IncludeDisabled,
-        
-        [Parameter(HelpMessage="Filter by specific protocol (TCP, UDP, Any)")]
-        [ValidateSet("TCP", "UDP", "Any", IgnoreCase = $true)]
-        [string]$Protocol,
-        
-        [Parameter(HelpMessage="Filter by specific port number")]
-        [string]$Port,
-        
-        [Parameter(HelpMessage="Show additional rule details including rule description")]
-        [switch]$Detailed,
-        
-        [Parameter(HelpMessage="Export results to CSV file")]
-        [string]$ExportCSV
+    param(
+        [switch]$ShowAll,
+        [switch]$ShowUnlinked,
+        [switch]$ShowLinked,
+        [switch]$ExportCSV,
+        [ValidateScript({ Test-Path -Path (Split-Path $_ -Parent) -PathType Container })]
+        [string]$CSVPath = ".\GPO_Report_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv",
+        [string]$NameFilter,
+        [DateTime]$ModifiedAfter,
+        [DateTime]$ModifiedBefore
     )
 
-    # Display processing message
-    Write-Verbose "Retrieving firewall rules with filters - Blocked: $IncludeBlocked, Disabled: $IncludeDisabled, Protocol: $($Protocol ?? 'Any'), Port: $($Port ?? 'Any')"
-    
-    # Get all matching firewall rules
-    $rules = Get-NetFirewallRule -PolicyStore ActiveStore | Where-Object {
-        $_.Direction -eq 'Inbound' -and
-        ($IncludeBlocked -or $_.Action -eq 'Allow') -and
-        ($IncludeDisabled -or $_.Enabled -eq $true)
-    }
-    
-    Write-Verbose "Found $($rules.Count) matching base firewall rules"
-    
-    $results = [System.Collections.ArrayList]::new()
-    $processedCount = 0
-    
-    foreach ($rule in $rules) {
-        # Get associated port filters
-        $portFilters = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue
-        
-        # Skip rules without port filters unless we're viewing detailed info
-        if (-not $portFilters -and -not $Detailed) { continue }
-        
-        # Get associated address filters for additional info
-        $addressFilter = Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue
-        
-        # Get application filters for executable path
-        $appFilter = Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue
-        
-        # Get security filters for additional security info
-        $securityFilter = Get-NetFirewallSecurityFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue
-        
-        $processedCount++
-        Write-Progress -Activity "Processing Firewall Rules" -Status "Rule $processedCount of $($rules.Count)" -PercentComplete (($processedCount / $rules.Count) * 100)
-        
-        # If there are port filters, process each one
-        if ($portFilters) {
-            foreach ($filter in $portFilters) {
-                # Skip if protocol filter is specified and doesn't match
-                if ($Protocol -and $filter.Protocol -ne $Protocol) { continue }
-                
-                # Skip if port filter is specified and doesn't match
-                if ($Port -and 
-                   (-not $filter.LocalPort -or 
-                    ($filter.LocalPort -ne $Port -and 
-                     $filter.LocalPort -ne "Any" -and 
-                     $filter.LocalPort -notlike "*,$Port,*" -and 
-                     $filter.LocalPort -notlike "$Port,*" -and 
-                     $filter.LocalPort -notlike "*,$Port"))) { continue }
-                
-                # Create the output object with standard properties
-                $resultObj = [PSCustomObject]@{
-                    RuleID      = $rule.Name
-                    Name        = $rule.DisplayName
-                    Enabled     = if ($rule.Enabled -eq $true) { "Yes" } else { "No" }
-                    Direction   = $rule.Direction
-                    Profiles    = ($rule.Profile -split ", " | ForEach-Object { $_.Substring(0,1) }) -join ""
-                    Action      = $rule.Action
-                    Protocol    = if ($filter.Protocol -eq "Any") { "Any" } else { $filter.Protocol }
-                    LocalPort   = if ($filter.LocalPort -eq "Any") { "Any" } else { $filter.LocalPort }
-                    RemotePort  = if ($filter.RemotePort -eq "Any") { "Any" } else { $filter.RemotePort }
-                    Program     = if ($appFilter.Program -eq "*") { "Any" } else { Split-Path $appFilter.Program -Leaf }
-                    ProgramPath = if ($appFilter.Program -eq "*") { "Any" } else { $appFilter.Program }
-                }
-                
-                # Add detailed properties if requested
-                if ($Detailed) {
-                    Add-Member -InputObject $resultObj -NotePropertyName "Description" -NotePropertyValue $rule.Description
-                    Add-Member -InputObject $resultObj -NotePropertyName "Group" -NotePropertyValue $rule.Group
-                    Add-Member -InputObject $resultObj -NotePropertyName "LocalAddress" -NotePropertyValue ($addressFilter.LocalAddress -join ", ")
-                    Add-Member -InputObject $resultObj -NotePropertyName "RemoteAddress" -NotePropertyValue ($addressFilter.RemoteAddress -join ", ")
-                    Add-Member -InputObject $resultObj -NotePropertyName "Authentication" -NotePropertyValue $securityFilter.Authentication
-                    Add-Member -InputObject $resultObj -NotePropertyName "Encryption" -NotePropertyValue $securityFilter.Encryption
-                }
-                
-                [void]$results.Add($resultObj)
-            }
-        }
-        # If no port filters but detailed view requested, still include the rule
-        elseif ($Detailed) {
-            $resultObj = [PSCustomObject]@{
-                RuleID      = $rule.Name
-                Name        = $rule.DisplayName
-                Enabled     = if ($rule.Enabled -eq $true) { "Yes" } else { "No" }
-                Direction   = $rule.Direction
-                Profiles    = ($rule.Profile -split ", " | ForEach-Object { $_.Substring(0,1) }) -join ""
-                Action      = $rule.Action
-                Protocol    = "N/A"
-                LocalPort   = "N/A"
-                RemotePort  = "N/A"
-                Program     = if ($appFilter.Program -eq "*") { "Any" } else { Split-Path $appFilter.Program -Leaf }
-                ProgramPath = if ($appFilter.Program -eq "*") { "Any" } else { $appFilter.Program }
-                Description = $rule.Description
-                Group       = $rule.Group
-                LocalAddress = ($addressFilter.LocalAddress -join ", ")
-                RemoteAddress = ($addressFilter.RemoteAddress -join ", ")
-                Authentication = $securityFilter.Authentication
-                Encryption = $securityFilter.Encryption
-            }
-            
-            [void]$results.Add($resultObj)
-        }
-    }
-    
-    Write-Progress -Activity "Processing Firewall Rules" -Completed
-    
-    # Export to CSV if requested
-    if ($ExportCSV) {
-        try {
-            $results | Export-Csv -Path $ExportCSV -NoTypeInformation -Encoding UTF8
-            Write-Host "Results exported to $ExportCSV" -ForegroundColor Green
-        }
-        catch {
-            Write-Warning "Failed to export results to CSV: $_"
-        }
-    }
-    
-    # Output a summary before returning results
-    Write-Host "`nFirewall Rules Summary:" -ForegroundColor Cyan
-    Write-Host "------------------------" -ForegroundColor Cyan
-    Write-Host "Total rules processed: $($rules.Count)" -ForegroundColor Cyan
-    Write-Host "Rules with port filters: $($results.Count)" -ForegroundColor Cyan
-    Write-Host "Enabled rules: $(($results | Where-Object { $_.Enabled -eq 'Yes' }).Count)" -ForegroundColor Cyan
-    Write-Host "Blocked rules: $(($results | Where-Object { $_.Action -eq 'Block' }).Count)" -ForegroundColor Cyan
-    
-    if ($Protocol) {
-        Write-Host "$Protocol protocol rules: $(($results | Where-Object { $_.Protocol -eq $Protocol }).Count)" -ForegroundColor Cyan
-    }
-    
-    return $results
-}
+    # Header
+    Write-Host "`n=== Group Policy Object Report ===" -ForegroundColor Cyan
+    Write-Host "Domain: $((Get-WmiObject Win32_ComputerSystem).Domain)"
+    Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    Write-Host "Run by: $env:USERNAME on $env:COMPUTERNAME"
+    Write-Host "===============================`n" -ForegroundColor Cyan
 
-# Example usage:
-# Get all enabled "Allow" rules
- Get-FirewallPortRules | Sort-Object -Property Name | Format-Table -AutoSize -Wrap
+    try
+    {
+        Import-Module GroupPolicy -ErrorAction Stop
+        Write-Verbose "GroupPolicy module loaded."
+    }
+    catch
+    {
+        Write-Error "Failed to load GroupPolicy module: $_"
+        return
+    }
+
+    # Default to ShowAll if no filter switches are specified
+    if (-not ($ShowAll -or $ShowUnlinked -or $ShowLinked))
+    {
+        $ShowAll = $true
+    }
+
+    try
+    {
+        Write-Host "Retrieving GPOs..." -ForegroundColor Yellow
+        $gpos = Get-GPO -All -ErrorAction Stop
+
+        if (-not $gpos)
+        {
+            Write-Warning "No GPOs found in the domain."
+            return
+        }
+
+        $allGPOs = @()
+        $linkedGPOs = @()
+        $unlinkedGPOs = @()
+
+        # Process each GPO
+        foreach ($gpo in $gpos)
+        {
+            # Apply filters
+            if ($NameFilter -and $gpo.DisplayName -notlike "*$NameFilter*") { continue }
+            if ($ModifiedAfter -and $gpo.ModificationTime -lt $ModifiedAfter) { continue }
+            if ($ModifiedBefore -and $gpo.ModificationTime -gt $ModifiedBefore) { continue }
+
+            # Get XML report
+            [xml]$xmlReport = $gpo.GenerateReport('XML')
+
+            # Process links
+            $links = @($xmlReport.GPO.LinksTo.Link | ForEach-Object {
+                    [PSCustomObject]@{
+                        Target     = $_.SOMPath
+                        Enabled    = $_.Enabled -eq 'true'
+                        NoOverride = $_.NoOverride -eq 'true'
+                    }
+                })
+
+            # Create GPO object
+            $gpoObject = [PSCustomObject]@{
+                Name        = $gpo.DisplayName
+                IsLinked    = $links.Count -gt 0
+                LinkCount   = $links.Count
+                Status      = $gpo.GpoStatus
+                Modified    = $gpo.ModificationTime
+                Created     = $gpo.CreationTime
+                UserVersion = [int]($xmlReport.GPO.UserVersion.Value ?? 0)
+                ComputerVersion = [int]($xmlReport.GPO.ComputerVersion.Value ?? 0)
+                Description     = $gpo.Description
+                ID              = $gpo.Id
+                Links           = $links
+            }
+
+            $allGPOs += $gpoObject
+            if ($gpoObject.IsLinked)
+            {
+                $linkedGPOs += $gpoObject
+            }
+            else
+            {
+                $unlinkedGPOs += $gpoObject
+            }
+        }
+
+        # Display linked GPOs
+        if ($ShowAll -or $ShowLinked)
+        {
+            Write-Host "`n--- Linked GPOs ($($linkedGPOs.Count)) ---" -ForegroundColor Green
+            if ($linkedGPOs)
+            {
+                $linkedGPOs | Sort-Object Modified -Descending | 
+                    Select-Object Name, Status, UserVersion, ComputerVersion, LinkCount, Created, Modified, ID | 
+                    Out-Host
+                foreach ($gpo in $linkedGPOs | Sort-Object Modified -Descending)
+                {
+                    Write-Host "`nGPO: $($gpo.Name) | ID: $($gpo.ID)" -ForegroundColor Yellow
+                    if ($gpo.Links)
+                    {
+                        $gpo.Links | Select-Object Target, Enabled, NoOverride | Out-Host
+                    }
+                    else
+                    {
+                        Write-Host "  No links found." -ForegroundColor Gray
+                    }
+                }
+            }
+            else
+            {
+                Write-Host "No linked GPOs found." -ForegroundColor Yellow
+            }
+        }
+
+        # Display unlinked GPOs
+        if ($ShowAll -or $ShowUnlinked)
+        {
+            Write-Host "`n--- Unlinked GPOs ($($unlinkedGPOs.Count)) ---" -ForegroundColor Magenta
+            if ($unlinkedGPOs)
+            {
+                $unlinkedGPOs | Sort-Object Modified -Descending | 
+                    Select-Object Name, Status, UserVersion, ComputerVersion, Created, Modified, ID | 
+                    Out-Host
+            }
+            else
+            {
+                Write-Host "No unlinked GPOs found." -ForegroundColor Green
+            }
+        }
+
+        # Export to CSV
+        if ($ExportCSV)
+        {
+            $csvData = @()
+            foreach ($gpo in $allGPOs)
+            {
+                if ($gpo.Links)
+                {
+                    foreach ($link in $gpo.Links)
+                    {
+                        $csvData += [PSCustomObject]@{
+                            Name            = $gpo.Name
+                            Status          = $gpo.Status
+                            UserVersion     = $gpo.UserVersion
+                            ComputerVersion = $gpo.ComputerVersion
+                            Created         = $gpo.Created
+                            Modified        = $gpo.Modified
+                            Description     = $gpo.Description
+                            IsLinked        = $true
+                            LinkTarget      = $link.Target
+                            LinkEnabled     = $link.Enabled
+                            LinkNoOverride  = $link.NoOverride
+                            ID              = $gpo.ID
+                        }
+                    }
+                }
+                else
+                {
+                    $csvData += [PSCustomObject]@{
+                        Name            = $gpo.Name
+                        Status          = $gpo.Status
+                        UserVersion     = $gpo.UserVersion
+                        ComputerVersion = $gpo.ComputerVersion
+                        Created         = $gpo.Created
+                        Modified        = $gpo.Modified
+                        Description     = $gpo.Description
+                        IsLinked        = $false
+                        LinkTarget      = $null
+                        LinkEnabled     = $null
+                        LinkNoOverride  = $null
+                        ID              = $gpo.ID
+                    }
+                }
+            }
+            $csvData | Export-Csv -Path $CSVPath -NoTypeInformation
+            Write-Host "`nReport exported to: $CSVPath" -ForegroundColor Cyan
+        }
+
+        # Summary
+        Write-Host "`n=== Summary ===" -ForegroundColor Cyan
+        Write-Host "Total GPOs: $($allGPOs.Count)"
+        Write-Host "Linked GPOs: $($linkedGPOs.Count)"
+        Write-Host "Unlinked GPOs: $($unlinkedGPOs.Count)"
+        Write-Host "===============================`n" -ForegroundColor Cyan
+
+        # Return GPO objects for pipeline
+        return $allGPOs
+    }
+    catch {
+        Write-Error "Error processing GPOs: $_"
+    }
+
