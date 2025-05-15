@@ -542,7 +542,7 @@ function Get-ServerInventory
                 {
                     $folderpath = (Get-ChildItem "C:\Windows\SYSVOL\sysvol" | Where-Object { $_.PSIsContainer } | Select-Object -First 1).FullName
                     Get-ChildItem -Recurse -Path "$folderpath" -ErrorAction SilentlyContinue | 
-                        Where-Object { $_.Extension -in ".bat", ".cmd", ".ps1", ".vbs" } | 
+                        Where-Object { $_.Extension -in ".bat", ".cmd", ".ps1", ".vbs",".exe",".msi" } | 
                         Select-Object FullName, Length, LastWriteTime
                 }
                 else
