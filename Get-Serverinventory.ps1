@@ -1380,7 +1380,7 @@ function Get-ServerInventory
 
     # Example usage:
     # Get all custom enabled "Allow" rules
-    Get-FirewallPortRules | Format-Table -AutoSize -Wrap
+    #Get-FirewallPortRules | Format-Table -AutoSize -Wrap
 
     # Get all custom rules including blocked and disabled
     # Get-FirewallPortRules -IncludeBlocked -IncludeDisabled | Format-Table -AutoSize -Wrap
