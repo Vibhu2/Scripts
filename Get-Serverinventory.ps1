@@ -540,7 +540,8 @@ function Get-ServerInventory
             $scriptBlock = {
                 if (Test-Path -Path "C:\Windows\SYSVOL\sysvol")
                 {
-                    Get-ChildItem -Recurse -Path "C:\Windows\SYSVOL\sysvol" -ErrorAction SilentlyContinue | 
+                    $folderpath = (Get-ChildItem "C:\Windows\SYSVOL\sysvol" | Where-Object { $_.PSIsContainer } | Select-Object -First 1).FullName
+                    Get-ChildItem -Recurse -Path "$folderpath" -ErrorAction SilentlyContinue | 
                         Where-Object { $_.Extension -in ".bat", ".cmd", ".ps1", ".vbs" } | 
                         Select-Object FullName, Length, LastWriteTime
                 }
